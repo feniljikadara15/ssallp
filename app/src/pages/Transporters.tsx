@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2, Save } from "lucide-react";
 import { useStore, nextId } from "../data/store";
 import { warehouseName } from "../data/lookups";
-import { Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHeader, SearchInput, Select, useToast } from "../components/ui";
+import { Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHeader, SearchInput, Select, useToast, ask } from "../components/ui";
 import ListItem from "../components/ListItem";
 
 export default function Transporters() {
@@ -39,7 +39,7 @@ export default function Transporters() {
           <Card className="p-5">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-medium text-secondary">{t.name}</h2>
-              <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => { if (confirm("Delete transporter?")) { update((d) => { d.transporters.find((x) => x.transporter_id === t.transporter_id)!.is_active = false; }); setSel(null); } }}>Delete Transporter</Button>
+              <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => { if (await ask("Delete transporter?")) { update((d) => { d.transporters.find((x) => x.transporter_id === t.transporter_id)!.is_active = false; }); setSel(null); } }}>Delete Transporter</Button>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <Field label="Name"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Enter transporter name" /></Field>

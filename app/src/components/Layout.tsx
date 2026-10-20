@@ -6,6 +6,7 @@ import {
   Tag, Users, Package, ExternalLink, Menu, X, RotateCcw,
 } from "lucide-react";
 import { useStore } from "../data/store";
+import { ask } from "./ui";
 
 const NAV: { section: string; items: { to: string; label: string; icon: React.ElementType }[] }[] = [
   { section: "Dashboard", items: [{ to: "/", label: "Dashboard", icon: LayoutDashboard }] },
@@ -67,7 +68,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         <a href="https://wordpress-511305-4547121.cloudwaysapps.com/" target="_blank" rel="noreferrer" className="flex w-full items-center justify-center gap-1.5 rounded-xl2 bg-info px-3 py-1.5 text-xs font-medium">
           External Form <ExternalLink className="h-3.5 w-3.5" />
         </a>
-        <button onClick={() => confirm("Reset all sample data?") && reset()} className="flex w-full items-center justify-center gap-1.5 rounded-xl2 px-3 py-1 text-[11px] text-white/50 hover:text-white">
+        <button onClick={async () => await ask("Reset all sample data?") && reset()} className="flex w-full items-center justify-center gap-1.5 rounded-xl2 px-3 py-1 text-[11px] text-white/50 hover:text-white">
           <RotateCcw className="h-3 w-3" /> Reset sample data
         </button>
       </div>
@@ -78,7 +79,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 export default function Layout() {
   const [open, setOpen] = useState(false);
   return (
-    <div className="flex h-screen bg-[#f6f6f8] font-sans text-[#0d0d0d]">
+    <div className="flex h-full bg-[#f6f6f8] font-sans text-[#0d0d0d]">
       <aside className="hidden w-64 shrink-0 lg:block"><Sidebar /></aside>
       {open && (
         <div className="fixed inset-0 z-40 lg:hidden">

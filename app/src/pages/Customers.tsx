@@ -12,6 +12,7 @@ export default function Customers() {
   const [active, setActive] = useState("");
   const [edit, setEdit] = useState<Customer | null>(null);
   const [sitesFor, setSitesFor] = useState<Customer | null>(null);
+  const toast = useToast();
 
   const rows = useMemo(
     () =>
@@ -25,7 +26,7 @@ export default function Customers() {
     <div>
       <PageHeader title="Customers">
         <Button variant="outline" icon={<Download className="h-3.5 w-3.5" />} onClick={() => downloadCsv("customers.csv", rows as never)}>Download</Button>
-        <Button variant="secondary" onClick={() => alert("Import from Zoho Books will be wired to the backend API.")}>Import Customer</Button>
+        <Button variant="secondary" onClick={() => toast("Import from Zoho Books will connect once the backend API is live")}>Import Customer</Button>
         <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setEdit(blank())}>Add Customer</Button>
       </PageHeader>
       <div className="mb-4 grid gap-4 sm:grid-cols-2">

@@ -3,7 +3,7 @@ import { Download, Pencil, Plus, Trash2 } from "lucide-react";
 import { useStore, nextId, downloadCsv } from "../data/store";
 import { warehouseName } from "../data/lookups";
 import type { WarehouseKeeper } from "../data/types";
-import { Button, Card, DataTable, Field, Input, Modal, PageHeader, SearchInput, Select } from "../components/ui";
+import { Button, Card, DataTable, Field, Input, Modal, PageHeader, SearchInput, Select, ask } from "../components/ui";
 
 export default function WarehouseKeepers() {
   const { db, update } = useStore();
@@ -27,7 +27,7 @@ export default function WarehouseKeepers() {
           { key: "actions", label: "Actions", render: (r) => (
             <div className="flex gap-1">
               <Button variant="ghost" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => setEdit(r)} />
-              <Button variant="ghost" className="text-red-700" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => confirm(`Delete ${r.name}?`) && update((d) => { d.warehouseKeepers.find((k) => k.warehouse_keeper_id === r.warehouse_keeper_id)!.is_active = false; })} />
+              <Button variant="ghost" className="text-red-700" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => await ask(`Delete ${r.name}?`) && update((d) => { d.warehouseKeepers.find((k) => k.warehouse_keeper_id === r.warehouse_keeper_id)!.is_active = false; })} />
             </div>
           ) },
         ]} />

@@ -1,9 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { HashRouter, MemoryRouter, Route, Routes } from "react-router-dom";
 import "./index.css";
 import { StoreProvider } from "./data/store";
 import Layout from "./components/Layout";
+
+// The self-contained preview build runs inside a sandboxed frame, so it keeps
+// routes in memory instead of the URL hash.
+const Router = import.meta.env.MODE === "single" ? MemoryRouter : HashRouter;
 import Dashboard from "./pages/Dashboard";
 import Enquiries from "./pages/Enquiries";
 import Orders from "./pages/Orders";
@@ -19,7 +23,7 @@ import LoadingSlips from "./pages/LoadingSlips";
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <StoreProvider>
-      <HashRouter>
+      <Router>
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
@@ -35,7 +39,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <Route path="loading-slips" element={<LoadingSlips />} />
           </Route>
         </Routes>
-      </HashRouter>
+      </Router>
     </StoreProvider>
   </React.StrictMode>,
 );

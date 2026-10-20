@@ -222,3 +222,26 @@ export function useToast() {
     setTimeout(() => el.remove(), 2200);
   };
 }
+
+// In-page confirmation dialog; resolves true when the user confirms.
+export function ask(message: string, confirmLabel = "Confirm"): Promise<boolean> {
+  return new Promise((resolve) => {
+    const root = document.createElement("div");
+    root.className = "fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4";
+    root.innerHTML = `
+      <div class="w-full max-w-sm rounded-xl2 bg-white p-5 shadow-xl">
+        <p class="text-sm text-secondary"></p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button data-v="0" class="rounded-xl2 border border-black/20 px-3.5 py-1.5 text-xs font-medium text-secondary hover:bg-black/5">Cancel</button>
+          <button data-v="1" class="rounded-xl2 bg-danger px-3.5 py-1.5 text-xs font-medium text-white hover:opacity-90"></button>
+        </div>
+      </div>`;
+    root.querySelector("p")!.textContent = message;
+    root.querySelector('[data-v="1"]')!.textContent = confirmLabel;
+    const done = (v: boolean) => { root.remove(); resolve(v); };
+    root.addEventListener("mousedown", (e) => { if (e.target === root) done(false); });
+    root.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => done(b.dataset.v === "1")));
+    document.body.appendChild(root);
+    (root.querySelector('[data-v="1"]') as HTMLButtonElement).focus();
+  });
+}

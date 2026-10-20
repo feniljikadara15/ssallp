@@ -3,7 +3,7 @@ import { Plus, Trash2, Pencil } from "lucide-react";
 import { useStore, nextId } from "../data/store";
 import { keeperName, transporterName } from "../data/lookups";
 import type { Warehouse } from "../data/types";
-import { Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHeader, SearchInput, Select, useToast } from "../components/ui";
+import { Button, Card, DataTable, EmptyState, Field, Input, Modal, PageHeader, SearchInput, Select, useToast, ask } from "../components/ui";
 import ListItem from "../components/ListItem";
 
 export default function Warehouses() {
@@ -44,7 +44,7 @@ export default function Warehouses() {
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => setEdit(w)}>Edit</Button>
-                <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => { if (confirm("Delete warehouse?")) { update((d) => { d.warehouses.find((x) => x.warehouse_id === w.warehouse_id)!.is_active = false; }); setSel(null); toast("Warehouse deleted"); } }}>Delete Warehouse</Button>
+                <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => { if (await ask("Delete warehouse?")) { update((d) => { d.warehouses.find((x) => x.warehouse_id === w.warehouse_id)!.is_active = false; }); setSel(null); toast("Warehouse deleted"); } }}>Delete Warehouse</Button>
               </div>
             </div>
 

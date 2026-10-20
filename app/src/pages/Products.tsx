@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Pencil, Plus, Tag, Trash2 } from "lucide-react";
 import { useStore, nextId, inr } from "../data/store";
 import type { Product } from "../data/types";
-import { Badge, Button, Card, DataTable, Field, Input, Modal, PageHeader, SearchInput, Select, Stat, useToast } from "../components/ui";
+import { Badge, Button, Card, DataTable, Field, Input, Modal, PageHeader, SearchInput, Select, Stat, useToast, ask } from "../components/ui";
 
 const blank = (): Product => ({ product_id: 0, product_name: "", category: "Steel", brand: "", grade: "", unit: "MT", sku: "", hsn: "", gst_rate: 18, mrp: 0, zb_item_id: "", is_active: true });
 
@@ -45,7 +45,7 @@ export default function Products() {
           { key: "action", label: "Action", render: (r) => (
             <div className="flex gap-1">
               <Button variant="ghost" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => setEdit(r)} />
-              <Button variant="ghost" className="text-red-700" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => { if (confirm(`Delete ${r.product_name}?`)) { update((d) => { d.products.find((p) => p.product_id === r.product_id)!.is_active = false; }); toast("Product deleted"); } }} />
+              <Button variant="ghost" className="text-red-700" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => { if (await ask(`Delete ${r.product_name}?`)) { update((d) => { d.products.find((p) => p.product_id === r.product_id)!.is_active = false; }); toast("Product deleted"); } }} />
             </div>
           ) },
         ]} />

@@ -2,4 +2,5 @@
 @tailwind components;
 @tailwind utilities;
 
-body { font-size: 12px; }
+html, body, #root { height: 100%; }
+body { font-size: 12px; background: #f6f6f8; color: #0d0d0d; }

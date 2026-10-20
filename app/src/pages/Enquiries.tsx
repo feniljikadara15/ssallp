@@ -3,7 +3,7 @@ import { Plus, Trash2, RotateCcw, ArrowRightCircle } from "lucide-react";
 import { useStore, fmtDate, inr, nextId } from "../data/store";
 import { customerName, siteOf, addressOf, warehouseName, transporterName, lineTotal } from "../data/lookups";
 import type { Enquiry, LineItem, PaymentType } from "../data/types";
-import { Badge, Button, Card, EmptyState, Field, Input, KV, Modal, PageHeader, SearchInput, Select, Tabs, Textarea, useToast } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Field, Input, KV, Modal, PageHeader, SearchInput, Select, Tabs, Textarea, useToast, ask } from "../components/ui";
 import ListItem from "../components/ListItem";
 import ItemsEditor, { ItemsTable } from "../components/ItemsEditor";
 
@@ -101,7 +101,7 @@ export default function Enquiries() {
               <div className="flex gap-2">
                 {enq.is_active ? (
                   <>
-                    <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => confirm("Delete this enquiry?") && setActive(false)}>Delete Enquiry</Button>
+                    <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => await ask("Delete this enquiry?") && setActive(false)}>Delete Enquiry</Button>
                     {enq.enquiry_status === "ongoing" && <Button icon={<ArrowRightCircle className="h-3.5 w-3.5" />} onClick={createOrder}>Create Order</Button>}
                   </>
                 ) : (

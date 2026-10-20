@@ -3,7 +3,7 @@ import { Download, Trash2, RotateCcw, FileText, Receipt, Truck, CheckCircle2, Pe
 import { useStore, fmtDate, inr, nextId, downloadCsv } from "../data/store";
 import { customerName, siteOf, addressOf, warehouseName, transporterName, vehicleNumber, slipsFor, collectedFor } from "../data/lookups";
 import type { Order, OrderStatus } from "../data/types";
-import { Badge, Button, Card, EmptyState, Field, Input, KV, Modal, PageHeader, SearchInput, Select, Tabs, useToast } from "../components/ui";
+import { Badge, Button, Card, EmptyState, Field, Input, KV, Modal, PageHeader, SearchInput, Select, Tabs, useToast, ask } from "../components/ui";
 import ListItem from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
@@ -136,7 +136,7 @@ function OrderDetail({ order }: { order: Order }) {
                 <Button variant="secondary" icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => setModal("cashbill")}>{order.invoice_id ? "View Cash Bill" : "Generate Cash Bill"}</Button>
               )}
               {order.invoice_id && <Button variant="outline" icon={<Send className="h-3.5 w-3.5" />} onClick={() => toast("Invoice sent to customer (with OTP) & transporter")}>Send Invoice</Button>}
-              <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={() => confirm("Delete this order?") && mut((o) => (o.is_active = false))}>Delete Order</Button>
+              <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => await ask("Delete this order?") && mut((o) => (o.is_active = false))}>Delete Order</Button>
             </>
           )}
         </div>
@@ -185,7 +185,7 @@ function OrderDetail({ order }: { order: Order }) {
                 <span key={s.loading_slip_item_id} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]">
                   <b>{s.loading_slip_file_name}</b> · {s.brand}
                   {order.is_active && order.order_status !== "delivered" && (
-                    <button title="Cancel loading slip" className="text-red-700" onClick={() => confirm(`Cancel ${s.loading_slip_file_name}?`) && update((d) => { const x = d.loadingSlipItems.find((y) => y.loading_slip_item_id === s.loading_slip_item_id)!; x.is_active = false; x.status = "Cancelled"; })}>
+                    <button title="Cancel loading slip" className="text-red-700" onClick={async () => await ask(`Cancel ${s.loading_slip_file_name}?`) && update((d) => { const x = d.loadingSlipItems.find((y) => y.loading_slip_item_id === s.loading_slip_item_id)!; x.is_active = false; x.status = "Cancelled"; })}>
                       <XCircle className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -279,7 +279,6 @@ function CashBillModal({ order, onClose }: { order: Order; onClose: () => void }
   return (
     <Modal open onClose={onClose} title="CASH BILL" size="lg" footer={
       <>
-        <Button variant="outline" onClick={() => window.print()}>Print</Button>
         {!order.invoice_id && <Button onClick={() => { update((d) => { d.orders.find((x) => x.order_id === order.order_id)!.invoice_id = `CB-${order.order_id}`; }); toast("Cash bill generated"); onClose(); }}>Generate Cash Bill</Button>}
       </>
     }>
