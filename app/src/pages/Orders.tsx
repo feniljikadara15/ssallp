@@ -4,7 +4,7 @@ import { Download, Trash2, RotateCcw, FileText, Receipt, Truck, CheckCircle2, Se
 import { api, patch, post, useAction, useGet, type Health } from "../api";
 import { exportRows, fmtDate, includes, inRange, inr, stamp, today } from "../format";
 import { ask, Badge, Button, Card, EmptyState, ErrorBox, Field, Input, KV, Loading, Menu, Modal, PageHeader, SearchInput, Select, Tabs, toast } from "../components/ui";
-import ListItem from "../components/ListItem";
+import ListItem, { revealDetail } from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
 type Tab = "1" | "2" | "3" | "5";
@@ -14,7 +14,7 @@ const TABS: { value: Tab; label: string }[] = [
 const EXPORT_NAME: Record<string, string> = { "1": "Ongoing Orders", "2": "In Transit Orders", "3": "Delivered Orders" };
 
 export default function Orders() {
-  const orders = useGet<any[]>("orders");
+  const orders = useGet<any[]>("orders", { refetchInterval: 60_000 });
   const [tab, setTab] = useState<Tab>("1");
   const [party, setParty] = useState("");
   const [num, setNum] = useState("");
@@ -49,7 +49,7 @@ export default function Orders() {
       <PageHeader title="Orders">
         {tab !== "5" && <Button variant="outline" busy={exporting} icon={<Download className="h-3.5 w-3.5" />} onClick={exportCsv} title={`Export ${EXPORT_NAME[tab]}`}>Export</Button>}
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="p-3">
           <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (orders.data ?? []).filter((o) => o.order_status === t.value).length }))} />
           <div className="mt-3 space-y-2">
@@ -65,7 +65,7 @@ export default function Orders() {
             {orders.isLoading && <Loading />}
             {orders.error && <ErrorBox error={orders.error} />}
             {list.map((o) => (
-              <ListItem key={o.order_id} active={sel === o.order_id} onClick={() => setSel(o.order_id)}
+              <ListItem key={o.order_id} active={sel === o.order_id} onClick={() => { setSel(o.order_id); revealDetail(); }}
                 title={`OD - ${o.customer_name ?? ""} - ${o.order_id}`}
                 subtitle={o.loading_slip_file_name ? <b className="text-secondary">{o.loading_slip_file_name}</b> : o.order_number}
                 tag={o.payment_type && <Badge tone={o.payment_type === "cash" ? "yellow" : "blue"}>{o.payment_type}</Badge>}
@@ -74,7 +74,7 @@ export default function Orders() {
             {orders.data && !list.length && <div className="py-8 text-center text-xs text-gray-400">No orders</div>}
           </div>
         </Card>
-        {sel ? <OrderDetail id={sel} onMoved={(t) => setTab(t)} /> : <EmptyState text="Select an order to view details" />}
+        <div id="detail-panel" className="min-w-0 scroll-mt-4">{sel ? <OrderDetail id={sel} onMoved={(t) => setTab(t)} /> : <EmptyState text="Select an order to view details" />}</div>
       </div>
     </div>
   );
@@ -97,6 +97,7 @@ function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void })
   const invoice = useAction(() => post(`orders/${id}/invoice`), refresh, { onSuccess: () => onMoved("2") });
   const cashBill = useAction(() => post(`orders/${id}/cash-bill`), refresh, { onSuccess: () => onMoved("2") });
   const sendInvoice = useAction((to: string) => post(`orders/${id}/send-invoice`, { to }), []);
+  const saveItems = useAction((items: Record<string, unknown>[]) => patch(`orders/${id}/items`, { items }), ["orders"]);
 
   if (isLoading) return <Card className="p-5"><Loading /></Card>;
   if (error || !o) return <Card className="p-5"><ErrorBox error={error} /></Card>;
@@ -182,7 +183,7 @@ function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void })
         )}
       </div>
       {cashMode && status === "1" && <div className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Cash bill mode: this order will be billed as cash instead of a Zoho invoice.</div>}
-      <ItemsTable items={o.items} />
+      <ItemsTable items={o.items} idKey="order_item_id" onSave={status === "1" ? (items) => saveItems.mutate(items) : undefined} saving={saveItems.isPending} />
       {total >= 50000 && o.tcs_status && <p className="mt-2 text-[11px] text-gray-500">TCS applies to this customer.</p>}
 
       {modal === "slips" && <LoadingSlipsModal order={o} onClose={() => setModal(null)} />}

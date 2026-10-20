@@ -21,6 +21,20 @@ function match(r: Route, method: string, parts: string[]) {
   return params;
 }
 
+// Slow down password guessing: 5 wrong attempts lock an email for 15 minutes.
+// Kept in memory, so it is per server instance; enough to blunt casual guessing.
+const attempts = new Map<string, { count: number; until: number }>();
+function lockedFor(email: string) {
+  const a = attempts.get(email);
+  return a && a.until > Date.now() ? Math.ceil((a.until - Date.now()) / 1000) : 0;
+}
+function failed(email: string) {
+  const a = attempts.get(email) ?? { count: 0, until: 0 };
+  a.count++;
+  if (a.count >= 5) { a.until = Date.now() + 15 * 60_000; a.count = 0; }
+  attempts.set(email, a);
+}
+
 const SESSION = "oms_session";
 const cookie = (value: string, maxAge: number) => `${SESSION}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${isDemo() ? "" : "; Secure"}`;
 
@@ -36,8 +50,16 @@ route("GET", "/api/session", async (req) => ({ user: req.user, authRequired: aut
 
 route("POST", "/api/login", async (req) => {
   if (!secret()) throw new HttpError(500, "AUTH_SECRET is not set on the server");
-  const user = login(String(req.body?.email ?? ""), String(req.body?.password ?? ""));
-  if (!user) throw new HttpError(401, "Wrong email or password");
+  const email = String(req.body?.email ?? "").trim().toLowerCase();
+  const wait = lockedFor(email);
+  if (wait) throw new HttpError(429, `Too many wrong attempts. Try again in ${Math.ceil(wait / 60)} minute${wait > 60 ? "s" : ""}.`);
+  const user = login(email, String(req.body?.password ?? ""));
+  if (!user) {
+    failed(email);
+    await new Promise((r) => setTimeout(r, 800));
+    throw new HttpError(401, "Wrong email or password");
+  }
+  attempts.delete(email);
   return { json: { user }, headers: { "Set-Cookie": cookie(signToken(user, 60 * 60 * 24 * 30), 60 * 60 * 24 * 30) } };
 }, { isPublic: true });
 

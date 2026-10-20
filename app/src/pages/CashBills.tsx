@@ -4,7 +4,7 @@ import { Download, Wallet } from "lucide-react";
 import { api, post, useAction, useGet } from "../api";
 import { exportRows, fmtDate, includes, inRange, inr, stamp, today } from "../format";
 import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Tabs, toast } from "../components/ui";
-import ListItem from "../components/ListItem";
+import ListItem, { revealDetail } from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
 type Tab = "pending" | "collected";
@@ -53,7 +53,7 @@ export default function CashBills() {
       <PageHeader title="Cash Bills">
         <Button variant="outline" busy={exporting} icon={<Download className="h-3.5 w-3.5" />} onClick={exportXlsx}>Export</Button>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="p-3">
           <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={[
             { value: "pending", label: "Pending", count: pending.data?.length },
@@ -72,7 +72,7 @@ export default function CashBills() {
             {source.isLoading && <Loading />}
             {source.error && <ErrorBox error={source.error} />}
             {list.map((o) => (
-              <ListItem key={o.order_id} active={sel === o.order_id} onClick={() => setSel(o.order_id)}
+              <ListItem key={o.order_id} active={sel === o.order_id} onClick={() => { setSel(o.order_id); revealDetail(); }}
                 title={`OD - ${o.customer_name ?? ""} - ${o.order_id}`}
                 subtitle={`${o.loading_slip_file_name ?? o.order_number ?? ""} · ${inr(o.total_amount)}${tab === "pending" ? ` · due ${inr(o.total_amount - o.total_collected)}` : ""}`}
                 right={fmtDate(o.order_date)} />
@@ -80,7 +80,7 @@ export default function CashBills() {
             {source.data && !list.length && <div className="py-8 text-center text-xs text-gray-400">No cash bills</div>}
           </div>
         </Card>
-        {sel ? <CashBillDetail id={sel} /> : <EmptyState text="Select a cash bill to view details" />}
+        <div id="detail-panel" className="min-w-0 scroll-mt-4">{sel ? <CashBillDetail id={sel} /> : <EmptyState text="Select a cash bill to view details" />}</div>
       </div>
     </div>
   );

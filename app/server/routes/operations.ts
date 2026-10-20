@@ -205,6 +205,37 @@ route("GET", "/api/orders/:id", async (req) => {
   return { ...order, items, loading_slip_items: slips, loading_slip_count: new Set(slips.map((s) => s.loading_slip_id)).size };
 });
 
+// orderItemsTableSaveHandler / enquiryItemsTableSaveHandler: Retool let people edit
+// quantity and unit price inline while an order or enquiry was still ongoing.
+async function saveItems(table: "order_items" | "enquiry_items", parent: "order_id" | "enquiry_id", parentId: number, items: unknown) {
+  if (!Array.isArray(items) || !items.length) throw new HttpError(400, "No item changes to save");
+  const key = table === "order_items" ? "order_item_id" : "enquiry_item_id";
+  for (const it of items as Record<string, unknown>[]) {
+    const quantity = num(it.quantity, "Quantity"), unitPrice = num(it.unit_price, "Unit price");
+    if (quantity <= 0 || unitPrice < 0) throw new HttpError(400, "Quantity must be more than zero and price can't be negative");
+    const res = await q(`UPDATE ${table} SET quantity = $1, unit_price = $2, updated_at = NOW() WHERE ${key} = $3 AND ${parent} = $4 RETURNING ${key}`, [quantity, unitPrice, num(it[key], "Item"), parentId]);
+    if (!res.length) throw new HttpError(404, "Item not found on this record");
+  }
+}
+
+route("PATCH", "/api/orders/:id/items", async ({ params, body }) => {
+  const id = num(params.id);
+  const o = await one("SELECT order_status FROM orders WHERE order_id = $1", [id]);
+  if (!o) throw new HttpError(404, "Order not found");
+  if (o.order_status !== "1") throw new HttpError(400, "Items can only be changed while the order is ongoing");
+  await saveItems("order_items", "order_id", id, body.items);
+  return { message: "Order items updated" };
+});
+
+route("PATCH", "/api/enquiries/:id/items", async ({ params, body }) => {
+  const id = num(params.id);
+  const e = await one("SELECT enquiry_status FROM enquiries WHERE enquiry_id = $1", [id]);
+  if (!e) throw new HttpError(404, "Enquiry not found");
+  if (e.enquiry_status !== "0") throw new HttpError(400, "Items can only be changed while the enquiry is ongoing");
+  await saveItems("enquiry_items", "enquiry_id", id, body.items);
+  return { message: "Enquiry items updated" };
+});
+
 // updateOrderParameters
 route("PATCH", "/api/orders/:id", async ({ params, body }) => {
   const id = num(params.id);

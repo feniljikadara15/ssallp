@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { del, patch, post, useAction, useGet } from "../api";
 import { ask, Button, Card, DataTable, EmptyState, ErrorBox, Field, Input, Loading, Modal, PageHeader, SearchInput, Select } from "../components/ui";
-import ListItem from "../components/ListItem";
+import ListItem, { revealDetail } from "../components/ListItem";
 
 export default function Transporters() {
   const transporters = useGet<any[]>("transporters");
@@ -17,16 +17,16 @@ export default function Transporters() {
       <PageHeader title="Transporters">
         <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowNew(true)}>New</Button>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="p-3">
           <SearchInput value={q} onChange={setQ} placeholder="Search transporter" />
           <div className="mt-3 space-y-2">
             {transporters.isLoading && <Loading />}
             {transporters.error && <ErrorBox error={transporters.error} />}
-            {list.map((x) => <ListItem key={x.transporter_id} active={sel === x.transporter_id} onClick={() => setSel(x.transporter_id)} title={x.name} subtitle={x.phone_number} />)}
+            {list.map((x) => <ListItem key={x.transporter_id} active={sel === x.transporter_id} onClick={() => { setSel(x.transporter_id); revealDetail(); }} title={x.name} subtitle={x.phone_number} />)}
           </div>
         </Card>
-        {t ? <TransporterDetail t={t} onDeleted={() => setSel(null)} /> : <EmptyState text="Select a transporter to view details" />}
+        <div id="detail-panel" className="min-w-0 scroll-mt-4">{t ? <TransporterDetail t={t} onDeleted={() => setSel(null)} /> : <EmptyState text="Select a transporter to view details" />}</div>
       </div>
       {showNew && <NewTransporter onClose={() => setShowNew(false)} onSaved={setSel} />}
     </div>

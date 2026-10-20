@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Plus, Trash2, Pencil, Building2 } from "lucide-react";
 import { del, patch, post, useAction, useGet } from "../api";
 import { ask, Button, Card, DataTable, EmptyState, ErrorBox, Field, Input, Loading, Modal, PageHeader, SearchInput, Select, Textarea } from "../components/ui";
-import ListItem from "../components/ListItem";
+import ListItem, { revealDetail } from "../components/ListItem";
 
 export default function Warehouses() {
   const warehouses = useGet<any[]>("warehouses");
@@ -17,7 +17,7 @@ export default function Warehouses() {
       <PageHeader title="Warehouses">
         <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setEdit({})}>New</Button>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="p-3">
           <SearchInput value={q} onChange={setQ} placeholder="Search warehouse" />
           <div className="mt-3 space-y-2">
@@ -25,13 +25,13 @@ export default function Warehouses() {
             {warehouses.error && <ErrorBox error={warehouses.error} />}
             {list.map((x) => (
               <div key={x.warehouse_id} className="flex items-stretch gap-1">
-                <div className="min-w-0 flex-1"><ListItem active={sel === x.warehouse_id} onClick={() => setSel(x.warehouse_id)} title={x.name} subtitle={x.location} /></div>
+                <div className="min-w-0 flex-1"><ListItem active={sel === x.warehouse_id} onClick={() => { setSel(x.warehouse_id); revealDetail(); }} title={x.name} subtitle={x.location} /></div>
                 <button aria-label={`Edit ${x.name}`} title="Edit warehouse and companies" onClick={() => setEdit(x)} className="rounded-xl border px-2 text-gray-500 hover:border-primary/40 hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button>
               </div>
             ))}
           </div>
         </Card>
-        {w ? <WarehouseDetail w={w} onDeleted={() => setSel(null)} /> : <EmptyState text="Select a warehouse to view details" />}
+        <div id="detail-panel" className="min-w-0 scroll-mt-4">{w ? <WarehouseDetail w={w} onDeleted={() => setSel(null)} /> : <EmptyState text="Select a warehouse to view details" />}</div>
       </div>
       {edit && <WarehouseModal w={edit} onClose={() => setEdit(null)} onSaved={(id) => setSel(id)} />}
     </div>

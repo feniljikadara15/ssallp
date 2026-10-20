@@ -82,7 +82,7 @@ export function Field({ label, children, className }: { label: string; children:
   );
 }
 
-const inputCls = "w-full rounded-lg border border-black/20 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20";
+const inputCls = "w-full min-w-0 rounded-lg border border-black/20 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20";
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={clsx(inputCls, p.className)} />;
 export const Select = ({ options, placeholder, ...p }: SelectHTMLAttributes<HTMLSelectElement> & { options: { value: string | number; label: string }[]; placeholder?: string }) => (
   <select {...p} className={clsx(inputCls, p.className)}>
@@ -219,7 +219,7 @@ let toastStack: HTMLDivElement | null = null;
 export function toast(msg: string, tone: "ok" | "warn" | "error" = "ok") {
   if (!toastStack || !document.body.contains(toastStack)) {
     toastStack = document.createElement("div");
-    toastStack.className = "fixed bottom-5 right-5 z-[80] flex max-w-sm flex-col items-end gap-2";
+    toastStack.className = "fixed bottom-5 left-4 right-4 z-[80] flex flex-col items-end gap-2 sm:left-auto sm:right-5 sm:max-w-sm";
     document.body.appendChild(toastStack);
   }
   const el = document.createElement("div");

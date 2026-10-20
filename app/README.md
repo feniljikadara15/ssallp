@@ -62,3 +62,11 @@ npm run typecheck
 Status codes are the ones already in the database: enquiries `0` ongoing, `1` past, `5` deleted; orders `1` ongoing, `2` in transit, `3` delivered, `5` deleted.
 
 The five workflows' own source was not in the Retool export, so they are rebuilt from what the app sends them and reads back. Compare them with the Retool originals (Retool → Workflows → export JSON) before switching over, especially the Zoho invoice fields and the loading slip numbering.
+
+## Before switching off Retool
+
+- [ ] Set the environment variables above and redeploy.
+- [ ] Sign in and check the order, enquiry and customer counts match Retool.
+- [ ] Compare the five rebuilt workflows with their Retool exports (invoice fields, loading slip numbering, how the enquiry workflow fills customer and address fields).
+- [ ] Run one real order end to end: enquiry → order → loading slips → invoice → WhatsApp to customer and transporter → delivery OTP.
+- [ ] Rotate the AiSensy API key (it was stored in plain text inside the Retool export).

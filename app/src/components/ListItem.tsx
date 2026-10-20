@@ -16,3 +16,9 @@ export default function ListItem({ title, subtitle, right, tag, active, onClick 
     </button>
   );
 }
+
+// On phones the detail panel sits below the list; bring it into view after a pick.
+export function revealDetail() {
+  if (window.innerWidth >= 1024) return;
+  setTimeout(() => document.getElementById("detail-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+}

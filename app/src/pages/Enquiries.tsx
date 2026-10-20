@@ -3,14 +3,14 @@ import { Plus, Trash2, RotateCcw, ArrowRightCircle, Send, X } from "lucide-react
 import { api, patch, post, useAction, useGet } from "../api";
 import { fmtDate, includes, inRange, inr, today } from "../format";
 import { ask, Badge, Button, Card, Checkbox, Combobox, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Select, Tabs, Textarea, toast } from "../components/ui";
-import ListItem from "../components/ListItem";
+import ListItem, { revealDetail } from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
 type Tab = "0" | "1" | "5";
 const TABS: { value: Tab; label: string }[] = [{ value: "0", label: "Ongoing" }, { value: "1", label: "Past" }, { value: "5", label: "Deleted" }];
 
 export default function Enquiries() {
-  const enquiries = useGet<any[]>("enquiries");
+  const enquiries = useGet<any[]>("enquiries", { refetchInterval: 60_000 });
   const [tab, setTab] = useState<Tab>("0");
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
@@ -28,7 +28,7 @@ export default function Enquiries() {
       <PageHeader title="Enquiries">
         <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowNew(true)}>New</Button>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="p-3">
           <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (enquiries.data ?? []).filter((e) => e.enquiry_status === t.value).length }))} />
           <div className="mt-3 space-y-2">
@@ -44,7 +44,7 @@ export default function Enquiries() {
             {enquiries.isLoading && <Loading />}
             {enquiries.error && <ErrorBox error={enquiries.error} />}
             {list.map((e) => (
-              <ListItem key={e.enquiry_id} active={sel === e.enquiry_id} onClick={() => setSel(e.enquiry_id)}
+              <ListItem key={e.enquiry_id} active={sel === e.enquiry_id} onClick={() => { setSel(e.enquiry_id); revealDetail(); }}
                 title={`EN - ${e.enquiry_id} - ${e.customer_name ?? ""}`}
                 tag={e.type && <Badge tone={e.type === "External" ? "purple" : "blue"}>{e.type}</Badge>}
                 right={fmtDate(e.enquiry_date)} />
@@ -52,7 +52,7 @@ export default function Enquiries() {
             {enquiries.data && !list.length && <div className="py-8 text-center text-xs text-gray-400">No enquiries</div>}
           </div>
         </Card>
-        {sel ? <EnquiryDetail id={sel} onMoved={(t) => { setTab(t); if (t === "5" || t === "1") setSel(null); }} /> : <EmptyState text="Select an enquiry to view details" />}
+        <div id="detail-panel" className="min-w-0 scroll-mt-4">{sel ? <EnquiryDetail id={sel} onMoved={(t) => { setTab(t); if (t === "5" || t === "1") setSel(null); }} /> : <EmptyState text="Select an enquiry to view details" />}</div>
       </div>
       {showNew && <NewEnquiryModal onClose={() => setShowNew(false)} onCreated={(id) => { setTab("0"); setSel(id); }} />}
     </div>
@@ -67,6 +67,7 @@ function EnquiryDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void 
   const restore = useAction(() => post(`enquiries/${id}/restore`), ["enquiries"], { onSuccess: () => onMoved("0") });
   const createOrder = useAction(() => post(`enquiries/${id}/create-order`), ["enquiries", "orders", "dashboard"], { onSuccess: () => onMoved("1") });
   const setTransport = useAction((body: object) => patch(`enquiries/${id}/transport`, body), ["enquiries"], { quiet: true });
+  const saveItems = useAction((items: Record<string, unknown>[]) => patch(`enquiries/${id}/items`, { items }), ["enquiries"]);
   const notify = useAction(() => post(`enquiries/${id}/notify-transporter`), [], { onSuccess: (r) => toast(r.note ?? "Enquiry sent to transporter", r.sent === false ? "warn" : "ok") });
 
   if (isLoading) return <Card className="p-5"><Loading /></Card>;
@@ -130,7 +131,7 @@ function EnquiryDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void 
         <h3 className="text-sm font-medium text-secondary">Enquiry Items</h3>
         <span className="text-xs text-gray-500">Total {inr(total)}</span>
       </div>
-      <ItemsTable items={e.items} />
+      <ItemsTable items={e.items} idKey="enquiry_item_id" onSave={e.enquiry_status === "0" ? (items) => saveItems.mutate(items) : undefined} saving={saveItems.isPending} />
     </Card>
   );
 }
