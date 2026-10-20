@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/main?__route=:path*" }
+  ],
+  "functions": {
+    "api/main.ts": { "maxDuration": 60 }
+  }
+}

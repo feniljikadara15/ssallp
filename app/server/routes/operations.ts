@@ -1,0 +1,501 @@
+// Enquiries, orders, loading slips and cash bills. Each handler notes the
+// Retool queries it replaces.
+import { randomInt } from "node:crypto";
+import { isDemo, zohoConfigured } from "../config.js";
+import { insertRow, one, q, updateRow, type Row } from "../db.js";
+import { HttpError, num, optNum, str } from "../http.js";
+import { zoho } from "../integrations.js";
+import * as msg from "../messages.js";
+import { loadingSlipPdf } from "../pdf.js";
+import { publicBase, route } from "../router.js";
+import { signPath } from "../sign.js";
+import { dmy } from "../messages.js";
+import { createEnquiryWorkflow, invoicingWorkflow, loadingSlipWorkflow, slipUrl } from "../workflows.js";
+
+const DATE_RANGE = (col: string, a: number, b: number) =>
+  `(NULLIF($${a}::text, '') IS NULL OR ${col}::date >= $${a}::date) AND (NULLIF($${b}::text, '') IS NULL OR ${col}::date <= $${b}::date)`;
+
+// ------------------------------------------------------------ dashboard
+
+route("GET", "/api/dashboard", async () => {
+  const pct = (table: string) => `(
+    WITH m AS (SELECT DATE_TRUNC('month', created_at) AS month_start, COUNT(*) AS cnt FROM ${table} GROUP BY 1),
+         lm AS (SELECT MAX(month_start) AS max_month FROM m)
+    SELECT CASE WHEN COALESCE(m2.cnt, 0) = 0 THEN NULL ELSE ROUND(((m1.cnt - m2.cnt)::decimal / m2.cnt) * 100, 2) END
+      FROM lm JOIN m m1 ON m1.month_start = lm.max_month LEFT JOIN m m2 ON m2.month_start = lm.max_month - INTERVAL '1 month')`;
+  const stats = await one(`SELECT
+      (SELECT COUNT(*) FROM orders) AS total_orders, ${pct("orders")} AS orders_pct,
+      (SELECT COUNT(*) FROM enquiries) AS total_enquiries, ${pct("enquiries")} AS enquiries_pct,
+      (SELECT COUNT(*) FROM customers) AS total_customers, ${pct("customers")} AS customers_pct`);
+  const chart = await q(`SELECT DATE_TRUNC('month', created_at) AS month_start, TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') AS month_label, COUNT(*)::int AS order_count
+      FROM orders WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' GROUP BY 1 ORDER BY 1`);
+  return { stats, chart };
+});
+
+// ------------------------------------------------------------ enquiries
+
+// getEnquiries (+ customer name for the list)
+route("GET", "/api/enquiries", async () =>
+  q(`SELECT e.enquiry_id, e.customer_id, e.enquiry_date, e.enquiry_status, e.type, e.billing_address_id, e.delivery_address_id, e.site_id,
+            e.remarks, e.warehouse_id, e.transporter_id, e.delivery_date, c.name AS customer_name
+       FROM enquiries e LEFT JOIN customers c ON c.customer_id = e.customer_id
+      WHERE e.is_active = TRUE ORDER BY e.enquiry_date DESC`));
+
+route("GET", "/api/enquiries/:id", async ({ params }) => {
+  const id = num(params.id);
+  const enquiry = await one(
+    `SELECT e.*, c.name AS customer_name, c.phone AS customer_phone, c.additional_phone_1, c.additional_phone_2, c.gstin, c.pan, c.tcs_status, c.zb_customer_id, c.email,
+            s.site_name, s.site_person_name, s.site_person_contact,
+            row_to_json(b) AS billing_address, row_to_json(d) AS delivery_address
+       FROM enquiries e
+       LEFT JOIN customers c ON c.customer_id = e.customer_id
+       LEFT JOIN sites s ON s.site_id = e.site_id
+       LEFT JOIN addresses b ON b.address_id = e.billing_address_id
+       LEFT JOIN addresses d ON d.address_id = e.delivery_address_id
+      WHERE e.enquiry_id = $1`,
+    [id],
+  );
+  if (!enquiry) throw new HttpError(404, "Enquiry not found");
+  // getEnquiryItems
+  const items = await q(
+    `SELECT ei.*, p.category, p.brand, p.grade, p.unit FROM enquiry_items ei LEFT JOIN products p ON p.product_id = ei.product_id WHERE ei.enquiry_id = $1 ORDER BY ei.enquiry_item_id`,
+    [id],
+  );
+  return { ...enquiry, items };
+});
+
+// triggerEnquiryWorkflow
+route("POST", "/api/enquiries", async ({ body }) => createEnquiryWorkflow(body));
+
+// updateWarehouse / updateTransporter (enquiry)
+route("PATCH", "/api/enquiries/:id/transport", async ({ params, body }) => {
+  const id = num(params.id);
+  if ("warehouse_id" in body) await q("UPDATE enquiries SET warehouse_id = $1, transporter_id = NULL WHERE enquiry_id = $2", [optNum(body.warehouse_id), id]);
+  if ("transporter_id" in body) await q("UPDATE enquiries SET transporter_id = $1 WHERE enquiry_id = $2", [optNum(body.transporter_id), id]);
+  return { ok: true };
+});
+
+route("POST", "/api/enquiries/:id/notify-transporter", async ({ params }) => msg.sendEnquiryToTransporter(num(params.id)));
+
+// deleteEnquiry + sendEnquiryRejectionToCustomer
+route("POST", "/api/enquiries/:id/delete", async ({ params }) => {
+  const id = num(params.id);
+  await q("UPDATE enquiries SET enquiry_status = '5' WHERE enquiry_id = $1", [id]);
+  const sent = await msg.sendEnquiryRejectionToCustomer(id).catch((e) => ({ sent: false, note: `Rejection message failed: ${e.message}` }));
+  return { message: "Enquiry deleted", whatsapp: sent };
+});
+
+// restoreEnquiry
+route("POST", "/api/enquiries/:id/restore", async ({ params }) => {
+  await q("UPDATE enquiries SET enquiry_status = '0' WHERE enquiry_id = $1", [num(params.id)]);
+  return { message: "Enquiry restored" };
+});
+
+// createOrder + insertOrderItems + updateEnquiryStatus + sendEnquiryToCustomer
+route("POST", "/api/enquiries/:id/create-order", async ({ params }) => {
+  const id = num(params.id);
+  const e = await one("SELECT * FROM enquiries WHERE enquiry_id = $1", [id]);
+  if (!e) throw new HttpError(404, "Enquiry not found");
+  if (e.enquiry_status !== "0") throw new HttpError(400, "Only ongoing enquiries can become orders");
+  if (e.warehouse_id == null || e.transporter_id == null) throw new HttpError(400, "Set the warehouse and transporter first");
+  const order = await one(
+    `INSERT INTO orders (enquiry_id, customer_id, order_date, order_status, billing_address_id, shipping_address_id, site_id, transporter_id, warehouse_id, created_at, updated_at, is_active)
+     VALUES ($1, $2, NOW(), '1', $3, $4, $5, $6, $7, NOW(), NOW(), TRUE) RETURNING order_id`,
+    [id, e.customer_id, e.billing_address_id, e.delivery_address_id, e.site_id, e.transporter_id, e.warehouse_id],
+  );
+  await q(
+    `INSERT INTO order_items (order_id, product_id, quantity, unit_price, remarks, created_at, updated_at, is_active)
+     SELECT $1, ei.product_id, ei.quantity, ei.unit_price, 'No remarks', NOW(), NOW(), TRUE FROM enquiry_items ei WHERE ei.enquiry_id = $2`,
+    [order!.order_id, id],
+  );
+  await q("UPDATE enquiries SET enquiry_status = '1' WHERE enquiry_id = $1", [id]);
+  const sent = await msg.sendEnquiryToCustomer(id).catch((err) => ({ sent: false, note: `Confirmation message failed: ${err.message}` }));
+  return { order_id: order!.order_id, message: `Order #${order!.order_id} created`, whatsapp: sent };
+});
+
+// Data for the New Enquiry form once a customer is picked:
+// getBillingAddressIndividual, getCustomerSites, getAddresses
+route("GET", "/api/customers/:id/enquiry-defaults", async ({ params }) => {
+  const id = num(params.id);
+  const customer = await one("SELECT * FROM customers WHERE customer_id = $1", [id]);
+  const billing = await one("SELECT * FROM addresses WHERE customer_id = $1 AND is_active = TRUE AND type = 'billing' ORDER BY address_id LIMIT 1", [id]);
+  const sites = await q(
+    `SELECT s.*, a.line1, a.line2, a.city, a.state, a.pincode, a.maps_link FROM sites s LEFT JOIN addresses a ON a.address_id = s.address_id
+      WHERE s.customer_id = $1 AND s.is_active = TRUE ORDER BY s.site_id`,
+    [id],
+  );
+  return { customer, billing, sites };
+});
+
+// getLtp: last price this customer paid for the product
+route("GET", "/api/last-price", async ({ query }) => {
+  const row = await one(
+    `SELECT oi.unit_price, o.order_date FROM order_items oi JOIN orders o ON oi.order_id = o.order_id JOIN customers c ON o.customer_id = c.customer_id
+      WHERE oi.product_id = $1 AND (c.customer_id = $2 OR c.phone = $3) ORDER BY o.order_date DESC LIMIT 1`,
+    [optNum(query.get("product_id")), optNum(query.get("customer_id")), str(query.get("phone"))],
+  );
+  return { json: row ?? null };
+});
+
+// checkZBCustomer / checkZBCustomerValidity
+route("GET", "/api/zoho/contacts/:id", async ({ params }) => {
+  if (!zohoConfigured()) {
+    if (isDemo()) return { valid: true, name: "Demo contact", message: "Demo mode: Zoho Books check skipped" };
+    throw new HttpError(503, "Zoho Books is not configured");
+  }
+  try {
+    const res = await zoho("GET", `contacts/${encodeURIComponent(params.id)}`);
+    const local = await one("SELECT customer_id, name FROM customers WHERE zb_customer_id = $1", [params.id]);
+    return { valid: true, name: res.contact.contact_name, message: local ? `Matches ${local.name}` : "Valid, not yet imported" };
+  } catch (e: any) {
+    return { valid: false, message: e.message };
+  }
+});
+
+// ------------------------------------------------------------ orders
+
+// getOrders + getAllLoadingSlipItems (for list labels and loading slip search)
+route("GET", "/api/orders", async () =>
+  q(`SELECT o.order_id, o.order_number, o.enquiry_id, o.order_date, o.payment_type, o.order_status, o.total_amount, o.customer_id, o.loading_slip_id,
+            o.invoice_id, c.name AS customer_name,
+            (SELECT lsi.loading_slip_file_name FROM loading_slip_items lsi WHERE lsi.loading_slip_id = o.loading_slip_id ORDER BY lsi.loading_slip_item_id LIMIT 1) AS loading_slip_file_name,
+            (SELECT ARRAY_AGG(lsi.loading_slip_number::text) FROM loading_slips ls JOIN loading_slip_items lsi ON lsi.loading_slip_id = ls.loading_slip_id WHERE ls.order_id = o.order_id) AS loading_slip_numbers
+       FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id
+      WHERE o.is_active = TRUE ORDER BY o.order_date DESC`));
+
+async function loadingSlipItems(orderId: number) {
+  // getLoadingSlips + getLoadingSlipItems
+  return q(
+    `SELECT lsi.*, ls.order_id, COALESCE(wk.name, '') AS warehouse_keeper_name, COALESCE(wk.phone, '') AS warehouse_keeper_phone
+       FROM loading_slips ls
+       JOIN loading_slip_items lsi ON lsi.loading_slip_id = ls.loading_slip_id AND lsi.is_active = TRUE
+       LEFT JOIN warehouse_brands wb ON LOWER(lsi.brand) = LOWER(wb.brand) AND wb.warehouse_id = ls.warehouse_id
+       LEFT JOIN warehouse_keepers wk ON wb.warehouse_keeper_id = wk.warehouse_keeper_id
+      WHERE ls.order_id = $1 AND ls.is_active = TRUE
+      ORDER BY lsi.loading_slip_item_id`,
+    [orderId],
+  );
+}
+
+route("GET", "/api/orders/:id", async (req) => {
+  const id = num(req.params.id);
+  const order = await one(
+    `SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, c.gstin, c.pan, c.tcs_status, c.zb_customer_id, c.email,
+            e.delivery_date, e.enquiry_date, s.site_name, s.site_person_name, s.site_person_contact,
+            row_to_json(b) AS billing_address, row_to_json(sa) AS shipping_address,
+            i.zb_invoice_id, i.zb_invoice_number, i.zb_invoice_url,
+            (SELECT COALESCE(SUM(amount), 0) FROM cash_collected cc WHERE cc.order_id = o.order_id AND cc.is_active = TRUE) AS total_collected
+       FROM orders o
+       LEFT JOIN customers c ON c.customer_id = o.customer_id
+       LEFT JOIN enquiries e ON e.enquiry_id = o.enquiry_id
+       LEFT JOIN sites s ON s.site_id = o.site_id
+       LEFT JOIN addresses b ON b.address_id = o.billing_address_id
+       LEFT JOIN addresses sa ON sa.address_id = o.shipping_address_id
+       LEFT JOIN invoices i ON i.invoice_id = o.invoice_id
+      WHERE o.order_id = $1`,
+    [id],
+  );
+  if (!order) throw new HttpError(404, "Order not found");
+  // getOrderItems
+  const items = await q(
+    `SELECT oi.*, p.category, p.brand, p.grade, p.unit FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id WHERE oi.order_id = $1 AND oi.is_active = TRUE ORDER BY oi.order_item_id`,
+    [id],
+  );
+  const slips = (await loadingSlipItems(id)).map((r): Row => ({ ...r, url: slipUrl(publicBase(req), r) }));
+  return { ...order, items, loading_slip_items: slips, loading_slip_count: new Set(slips.map((s) => s.loading_slip_id)).size };
+});
+
+// updateOrderParameters
+route("PATCH", "/api/orders/:id", async ({ params, body }) => {
+  const id = num(params.id);
+  await updateRow("orders", "order_id", id, {
+    warehouse_id: optNum(body.warehouse_id),
+    transporter_id: optNum(body.transporter_id),
+    vehicle_id: optNum(body.vehicle_id),
+    delivery_terms: str(body.delivery_terms),
+    po_number: str(body.po_number),
+    sub_dealer: str(body.sub_dealer),
+  });
+  return { message: "Order details saved" };
+});
+
+route("POST", "/api/orders/:id/delete", async ({ params }) => {
+  await q("UPDATE orders SET order_status = '5' WHERE order_id = $1", [num(params.id)]);
+  return { message: "Order deleted" };
+});
+
+route("POST", "/api/orders/:id/restore", async ({ params }) => {
+  await q("UPDATE orders SET order_status = '1' WHERE order_id = $1", [num(params.id)]);
+  return { message: "Order restored" };
+});
+
+route("POST", "/api/orders/:id/notify-transporter", async ({ params }) => msg.notifyTransporter(num(params.id)));
+
+// triggerLoadingSlipWorkflow
+route("POST", "/api/orders/:id/loading-slips", async ({ params, body }) => {
+  const res = await loadingSlipWorkflow(num(params.id), str(body.date) ?? new Date().toISOString().slice(0, 10));
+  return { message: `${res.count} loading slip${res.count === 1 ? "" : "s"} created` };
+});
+
+async function slipRow(itemId: number) {
+  const row = await one(
+    `SELECT lsi.*, ls.order_id, ls.warehouse_id, COALESCE(wk.name, '') AS warehouse_keeper_name, COALESCE(wk.phone, '') AS warehouse_keeper_phone
+       FROM loading_slip_items lsi JOIN loading_slips ls ON ls.loading_slip_id = lsi.loading_slip_id
+       LEFT JOIN warehouse_brands wb ON LOWER(lsi.brand) = LOWER(wb.brand) AND wb.warehouse_id = ls.warehouse_id
+       LEFT JOIN warehouse_keepers wk ON wb.warehouse_keeper_id = wk.warehouse_keeper_id
+      WHERE lsi.loading_slip_item_id = $1`,
+    [itemId],
+  );
+  if (!row) throw new HttpError(404, "Loading slip not found");
+  return row;
+}
+
+// sendLoadingSlipToWarehouseKeeper + updateLoadingSlipStatus
+route("POST", "/api/loading-slip-items/:id/send", async (req) => {
+  const row = await slipRow(num(req.params.id));
+  if (!row.warehouse_keeper_phone) throw new HttpError(400, `No warehouse keeper is assigned to ${row.brand} at this warehouse. Set it on the Warehouses page.`);
+  const res = await msg.sendLoadingSlipToKeeper(row as any, slipUrl(publicBase(req), row as any));
+  await q("UPDATE loading_slip_items SET status = 'Sent', updated_at = NOW() WHERE loading_slip_item_id = $1", [row.loading_slip_item_id]);
+  return { message: `Loading Slip ${row.loading_slip_file_name} sent to Warehouse Keeper`, whatsapp: res };
+});
+
+// cancelLoadingSlip + cancelLoadingSlipNotification
+route("POST", "/api/loading-slip-items/:id/cancel", async ({ params }) => {
+  const row = await slipRow(num(params.id));
+  await q("UPDATE loading_slip_items SET status = 'Cancelled', updated_at = NOW() WHERE loading_slip_item_id = $1", [row.loading_slip_item_id]);
+  const res = row.warehouse_keeper_phone
+    ? await msg.cancelLoadingSlipNotification(row as any).catch((e) => ({ sent: false, note: e.message }))
+    : { sent: false, note: "No warehouse keeper to notify" };
+  return { message: `Loading Slip ${row.loading_slip_file_name} cancelled`, whatsapp: res };
+});
+
+route("GET", "/api/loading-slip-items/:id/pdf", async ({ params }) => {
+  const row = await slipRow(num(params.id));
+  const o = (await one(
+    `SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, s.site_name, s.site_person_name, s.site_person_contact,
+            a.line1, a.line2, a.city, a.state, a.pincode, a.maps_link, w.name AS warehouse_name,
+            t.name AS transporter_name, t.phone_number AS transporter_phone, v.vehicle_number, to_jsonb(ls) ->> 'loading_slip_date' AS loading_slip_date
+       FROM orders o JOIN loading_slips ls ON ls.loading_slip_id = $2
+       LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN sites s ON s.site_id = o.site_id
+       LEFT JOIN addresses a ON a.address_id = o.shipping_address_id LEFT JOIN warehouses w ON w.warehouse_id = ls.warehouse_id
+       LEFT JOIN transporters t ON t.transporter_id = o.transporter_id LEFT JOIN vehicles v ON v.vehicle_id = o.vehicle_id
+      WHERE o.order_id = $1`,
+    [row.order_id, row.loading_slip_id],
+  ))!;
+  const items = await q(
+    `SELECT p.category, p.brand, p.grade, oi.quantity, p.unit FROM order_items oi JOIN products p ON p.product_id = oi.product_id
+      WHERE oi.order_id = $1 AND oi.is_active = TRUE AND LOWER(p.brand) = LOWER($2)`,
+    [row.order_id, row.brand],
+  );
+  const date = dmy(o.loading_slip_date ?? row.created_at ?? row.updated_at ?? new Date(), "/");
+  const pdf = await loadingSlipPdf({
+    number: row.loading_slip_number, fileName: row.loading_slip_file_name, date, orderId: row.order_id, orderNumber: o.order_number,
+    customer: o.customer_name, customerPhone: o.customer_phone, site: o.site_name, sitePerson: [o.site_person_name, o.site_person_contact].filter(Boolean).join(" "),
+    deliveryAddress: [o.line1, o.line2, o.city, o.state, o.pincode].filter(Boolean).join(", "), mapsLink: o.maps_link, warehouse: o.warehouse_name,
+    keeper: [row.warehouse_keeper_name, row.warehouse_keeper_phone].filter(Boolean).join(" "), transporter: o.transporter_name, transporterPhone: o.transporter_phone,
+    vehicle: o.vehicle_number, deliveryTerms: o.delivery_terms, subDealer: o.sub_dealer, poNumber: o.po_number, brand: row.brand,
+    items: items.map((i) => ({ category: i.category, brand: i.brand, grade: i.grade, quantity: Number(i.quantity), unit: i.unit })),
+  });
+  return { binary: { data: pdf, contentType: "application/pdf", filename: `${row.loading_slip_file_name}.pdf` } };
+});
+
+const newOtp = () => String(randomInt(100000, 1000000));
+
+// triggerInvoicingWorkflow + createOtp
+route("POST", "/api/orders/:id/invoice", async ({ params }) => {
+  const id = num(params.id);
+  const res = await invoicingWorkflow(id);
+  await q("UPDATE orders SET otp = $1 WHERE order_id = $2 AND otp IS NULL", [newOtp(), id]);
+  return res;
+});
+
+// getTotalAmount + generateCashBill
+route("POST", "/api/orders/:id/cash-bill", async ({ params }) => {
+  const id = num(params.id);
+  const slips = await one("SELECT COUNT(*)::int AS n FROM loading_slips WHERE order_id = $1 AND is_active = TRUE", [id]);
+  if (slips!.n !== 1) throw new HttpError(400, "Create the loading slips first");
+  await q(
+    `UPDATE orders SET total_amount = (SELECT COALESCE(SUM(total_price), 0) FROM order_items WHERE order_id = $1 AND is_active = TRUE),
+            payment_type = 'cash', updated_at = CURRENT_TIMESTAMP, order_status = '2', otp = COALESCE(otp, $2)
+      WHERE order_id = $1`,
+    [id, newOtp()],
+  );
+  return { message: "Cash bill generated" };
+});
+
+// markAsDelivered after the OTP check in deliveryModal
+route("POST", "/api/orders/:id/deliver", async ({ params, body }) => {
+  const id = num(params.id);
+  const o = await one("SELECT otp FROM orders WHERE order_id = $1", [id]);
+  if (!o) throw new HttpError(404, "Order not found");
+  if (String(body.otp ?? "").trim() !== String(o.otp ?? "")) throw new HttpError(400, "Incorrect OTP");
+  await q("UPDATE orders SET order_status = '3' WHERE order_id = $1", [id]);
+  return { message: "Order marked as delivered" };
+});
+
+// sendInvoiceButton: "Customer (with OTP)" and "Customer (with OTP) & Transporter"
+route("POST", "/api/orders/:id/send-invoice", async ({ params, body }) => {
+  const id = num(params.id);
+  const results = [];
+  if (body.to === "customer_transporter") results.push(await msg.sendInvoiceToTransporter(id));
+  results.push(await msg.notifyCustomer(id));
+  return { message: results.map((r) => r.note).join(" · ") };
+});
+
+// downloadInvoice (Zoho PDF), served directly instead of via Retool Storage
+route("GET", "/api/orders/:id/invoice.pdf", async ({ params }) => {
+  const inv = await one("SELECT i.* FROM orders o JOIN invoices i ON i.invoice_id = o.invoice_id WHERE o.order_id = $1", [num(params.id)]);
+  if (!inv) throw new HttpError(404, "This order has no invoice");
+  if (!zohoConfigured()) throw new HttpError(503, isDemo() ? "Demo mode: invoice PDFs come from Zoho Books" : "Zoho Books is not configured");
+  const pdf = await zoho<Buffer>("GET", `invoices/pdf?invoice_ids=${inv.zb_invoice_id}`, undefined, true);
+  return { binary: { data: pdf, contentType: "application/pdf", filename: `${inv.zb_invoice_number || inv.zb_invoice_id}.pdf` } };
+});
+
+route("GET", "/api/orders/:id/invoice-link", async (req) => ({ url: publicBase(req) + signPath(`/api/orders/${num(req.params.id)}/invoice.pdf`) }));
+
+// ongoing / transit / deliveredOrderDetailsForExport
+route("GET", "/api/orders-export", async ({ query }) => {
+  const status = String(query.get("status") ?? "1");
+  if (!["1", "2", "3"].includes(status)) throw new HttpError(400, "Unknown status");
+  const cols = [
+    `CASE WHEN ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY p.brand, oi.order_item_id) = 1 THEN o.order_id::text ELSE '' END AS "Order No"`,
+    `p.brand AS "Brand Name"`, `p.grade AS "Brand Grade"`, `oi.quantity AS "Number of Bags"`,
+    ...(status === "1" ? [] : [`o.total_amount AS "Total Price"`]),
+    `c.name AS "Party Name"`, `s.site_person_contact AS "Site Person Number"`, `s.site_name AS "Site Name"`,
+    `a.line2 AS "Location Line 2"`, `t.name AS "Assigned Transporter"`,
+    ...(status === "1" ? [] : [
+      `(SELECT STRING_AGG(wk.name, ', ') FROM loading_slip_items lsi LEFT JOIN warehouse_brands wb ON LOWER(lsi.brand) = LOWER(wb.brand) AND wb.warehouse_id = o.warehouse_id
+          LEFT JOIN warehouse_keepers wk ON wk.warehouse_keeper_id = wb.warehouse_keeper_id WHERE lsi.loading_slip_id = o.loading_slip_id AND lsi.is_active = TRUE) AS "Warehouse Keepers"`,
+      `o.sub_dealer AS "Sub Dealer"`,
+      `(SELECT STRING_AGG(lsi.loading_slip_file_name, ', ') FROM loading_slip_items lsi WHERE lsi.loading_slip_id = o.loading_slip_id AND lsi.is_active = TRUE) AS "Loading Slip Number"`,
+      `o.delivery_terms AS "Delivery Terms"`,
+    ]),
+  ];
+  return q(
+    `SELECT ${cols.join(",\n      ")}
+     FROM orders o JOIN order_items oi ON o.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id
+     LEFT JOIN sites s ON o.site_id = s.site_id LEFT JOIN addresses a ON s.address_id = a.address_id
+     LEFT JOIN customers c ON o.customer_id = c.customer_id LEFT JOIN transporters t ON o.transporter_id = t.transporter_id
+     WHERE o.order_status = $1 AND ${DATE_RANGE("o.order_date", 2, 3)}
+     ORDER BY o.order_id DESC, p.brand, oi.order_item_id`,
+    [status, query.get("start") ?? "", query.get("end") ?? ""],
+  );
+});
+
+// ------------------------------------------------------------ loading slips page
+
+// getLoadingSlipsNew + getLoadingSlipCount
+route("GET", "/api/loading-slips", async (req) => {
+  const { query } = req;
+  const where = `lsi.is_active = TRUE
+    AND (NULLIF($1::text, '') IS NULL OR lsi.loading_slip_file_name ILIKE '%' || $1::text || '%')
+    AND (NULLIF($2::text, '') IS NULL OR LOWER(lsi.brand) = LOWER($2::text))
+    AND (NULLIF($3::text, '') IS NULL OR LOWER(w.name) = LOWER($3::text) OR ls.warehouse_id::text = $3::text)
+    AND (NULLIF($4::text, '') IS NULL OR (o.order_date AT TIME ZONE 'Asia/Kolkata') >= $4::date)
+    AND (NULLIF($5::text, '') IS NULL OR (o.order_date AT TIME ZONE 'Asia/Kolkata') < ($5::date + INTERVAL '1 day'))`;
+  const from = `FROM loading_slip_items lsi LEFT JOIN loading_slips ls ON lsi.loading_slip_id = ls.loading_slip_id
+    LEFT JOIN orders o ON ls.order_id = o.order_id LEFT JOIN warehouses w ON ls.warehouse_id = w.warehouse_id
+    LEFT JOIN customers c ON c.customer_id = o.customer_id
+    LEFT JOIN warehouse_brands wb ON LOWER(lsi.brand) = LOWER(wb.brand) AND wb.warehouse_id = ls.warehouse_id
+    LEFT JOIN warehouse_keepers wk ON wb.warehouse_keeper_id = wk.warehouse_keeper_id`;
+  const args = ["search", "brand", "warehouse", "start", "end"].map((k) => query.get(k) ?? "");
+  const limit = Math.min(Number(query.get("limit") ?? 15), 200), offset = Number(query.get("offset") ?? 0);
+  const rows = await q(
+    `SELECT lsi.loading_slip_item_id, lsi.loading_slip_id, lsi.loading_slip_number, lsi.loading_slip_file_name, lsi.brand, lsi.status, lsi.url,
+            ls.order_id, ls.transporter_id, ls.warehouse_id, o.enquiry_id, o.order_number, o.order_status, o.payment_type, o.total_amount, o.customer_id,
+            o.invoice_id, o.po_number, o.vehicle_id, (o.order_date AT TIME ZONE 'Asia/Kolkata') AS order_date_ist, c.name AS customer_name,
+            w.name AS warehouse_name, COALESCE(wk.name, '') AS warehouse_keeper_name, COALESCE(wk.phone, '') AS warehouse_keeper_phone
+       ${from} WHERE ${where} ORDER BY order_date_ist DESC NULLS LAST, lsi.loading_slip_item_id DESC LIMIT ${limit} OFFSET ${offset}`,
+    args,
+  );
+  const count = await one(`SELECT COUNT(*)::int AS count ${from} WHERE ${where}`, args);
+  return { rows: rows.map((r) => ({ ...r, url: slipUrl(publicBase(req), r as any) })), count: count!.count };
+});
+
+// ------------------------------------------------------------ cash bills
+
+const CASH_BASE = `SELECT o.order_id, o.order_number, o.order_date, o.total_amount, o.customer_id, o.order_status, c.name AS customer_name,
+    lsi.loading_slip_file_name, lsi.loading_slip_number, COALESCE(cc.total_collected, 0) AS total_collected
+  FROM orders o
+  LEFT JOIN customers c ON c.customer_id = o.customer_id
+  LEFT JOIN (SELECT order_id, SUM(amount) AS total_collected FROM cash_collected WHERE is_active = TRUE GROUP BY order_id) cc ON o.order_id = cc.order_id
+  LEFT JOIN loading_slips ls ON ls.order_id = o.order_id AND ls.is_active = TRUE
+  LEFT JOIN (SELECT DISTINCT ON (loading_slip_id) loading_slip_id, loading_slip_file_name, loading_slip_number FROM loading_slip_items
+             WHERE is_active = TRUE ORDER BY loading_slip_id, loading_slip_item_id ASC) lsi ON lsi.loading_slip_id = ls.loading_slip_id`;
+
+// getCashBillsPending / getCashBillsCollected
+route("GET", "/api/cash-bills", async ({ query }) => {
+  const collected = query.get("tab") === "collected";
+  return q(
+    `${CASH_BASE} WHERE o.payment_type = 'cash' AND o.is_active = TRUE AND o.order_status <> '5'
+       AND ${collected ? "o.total_amount = cc.total_collected" : "(cc.total_collected IS NULL OR cc.total_collected < o.total_amount)"}
+       AND ${DATE_RANGE("o.order_date", 1, 2)}
+     ORDER BY o.order_date DESC`,
+    [query.get("start") ?? "", query.get("end") ?? ""],
+  );
+});
+
+// getCashBillItems + getCashPayments
+route("GET", "/api/cash-bills/:id", async ({ params }) => {
+  const id = num(params.id);
+  const order = await one(`${CASH_BASE} WHERE o.order_id = $1`, [id]);
+  if (!order) throw new HttpError(404, "Cash bill not found");
+  const items = await q(`SELECT oi.*, p.category, p.brand, p.grade, p.unit FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id WHERE oi.order_id = $1 ORDER BY oi.order_item_id`, [id]);
+  const payments = await q("SELECT * FROM cash_collected WHERE order_id = $1 AND is_active = TRUE ORDER BY collection_date, cash_collected_id", [id]);
+  return { ...order, items, payments };
+});
+
+// addCashCollected
+route("POST", "/api/cash-bills/:id/payments", async ({ params, body }) => {
+  const id = num(params.id);
+  const amount = num(body.amount, "Amount");
+  if (amount <= 0) throw new HttpError(400, "Amount must be more than zero");
+  await insertRow("cash_collected", { order_id: id, collection_date: str(body.collection_date), amount, payment_mode: "Cash", receipt_number: str(body.receipt_number), created_at: new Date(), updated_at: new Date(), is_active: true });
+  return { message: "Payment recorded" };
+});
+
+// getCashPendingExportData / getCashCollectedDetailsExport
+route("GET", "/api/cash-bills-export", async ({ query }) => {
+  if (query.get("tab") === "collected")
+    return q(`WITH lsn AS (SELECT o.order_id, STRING_AGG(DISTINCT lsi.loading_slip_file_name, ', ') AS loading_slip_numbers FROM orders o
+                 JOIN loading_slip_items lsi ON lsi.loading_slip_id = o.loading_slip_id AND lsi.is_active = TRUE GROUP BY o.order_id),
+       wka AS (SELECT o.order_id, STRING_AGG(DISTINCT wk.name, ', ') AS warehouse_keepers FROM orders o JOIN order_items oi ON o.order_id = oi.order_id
+                 JOIN products p ON oi.product_id = p.product_id JOIN warehouse_brands wb ON LOWER(wb.brand) = LOWER(p.brand) AND wb.warehouse_id = o.warehouse_id
+                 JOIN warehouse_keepers wk ON wb.warehouse_keeper_id = wk.warehouse_keeper_id GROUP BY o.order_id),
+       detail AS (SELECT c.order_id,
+           CASE WHEN ROW_NUMBER() OVER (PARTITION BY c.order_id ORDER BY c.collection_date DESC, p.brand) = 1 THEN (c.order_id::text || ' - ' || cu.name) ELSE '' END AS "Order",
+           c.collection_date::text AS "Collection Date", c.amount AS "Amount", c.payment_mode AS "Payment Mode", c.receipt_number AS "Receipt Number",
+           p.brand AS "Brand Name", p.grade AS "Brand Grade", oi.quantity AS "Number of Bags", oi.total_price AS "Price", s.site_name AS "Site Name",
+           t.name AS "Assigned Transporter", o.sub_dealer AS "Sub Dealer", o.delivery_terms AS "Delivery Terms",
+           lsn.loading_slip_numbers AS "Loading Slip Number", wka.warehouse_keepers AS "Warehouse Keeper"
+         FROM cash_collected c JOIN orders o ON c.order_id = o.order_id AND o.payment_type = 'cash' JOIN customers cu ON o.customer_id = cu.customer_id
+         JOIN order_items oi ON o.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id
+         LEFT JOIN sites s ON o.site_id = s.site_id LEFT JOIN transporters t ON o.transporter_id = t.transporter_id
+         LEFT JOIN lsn ON o.order_id = lsn.order_id LEFT JOIN wka ON o.order_id = wka.order_id WHERE c.payment_mode = 'Cash'),
+       totals AS (SELECT c.order_id, ''::text, 'Total'::text, SUM(c.amount)::numeric, ''::text, ''::text, ''::text, ''::text, NULL::numeric, NULL::numeric,
+           ''::text, ''::text, ''::text, ''::text, ''::text, ''::text
+         FROM cash_collected c JOIN orders o ON c.order_id = o.order_id AND o.payment_type = 'cash' WHERE c.payment_mode = 'Cash' GROUP BY c.order_id)
+      SELECT "Order", "Collection Date", "Amount", "Payment Mode", "Receipt Number", "Brand Name", "Brand Grade", "Number of Bags", "Price", "Site Name",
+             "Assigned Transporter", "Sub Dealer", "Delivery Terms", "Loading Slip Number", "Warehouse Keeper"
+        FROM (SELECT * FROM detail UNION ALL SELECT * FROM totals) combined
+       ORDER BY order_id DESC, ("Collection Date" = 'Total') ASC, "Collection Date" DESC NULLS LAST`);
+  return q(
+    `WITH cs AS (SELECT order_id, SUM(amount) AS total_collected FROM cash_collected WHERE is_active = TRUE GROUP BY order_id),
+       lsa AS (SELECT o.order_id, STRING_AGG(DISTINCT lsi.loading_slip_number::text, ', ' ORDER BY lsi.loading_slip_number::text) AS loading_slip_numbers
+                 FROM orders o JOIN loading_slip_items lsi ON lsi.loading_slip_id = o.loading_slip_id AND lsi.is_active = TRUE GROUP BY o.order_id),
+       base AS (SELECT o.order_id, o.order_date, p.brand, p.grade, oi.quantity, oi.total_price, c.name AS party_name, s.site_name, t.name AS transporter_name,
+                 wk.name AS warehouse_keeper, o.sub_dealer, lsa.loading_slip_numbers, o.delivery_terms,
+                 ROW_NUMBER() OVER (PARTITION BY o.order_id ORDER BY p.brand) AS rn
+            FROM orders o LEFT JOIN cs ON cs.order_id = o.order_id JOIN order_items oi ON o.order_id = oi.order_id JOIN products p ON oi.product_id = p.product_id
+            LEFT JOIN customers c ON o.customer_id = c.customer_id LEFT JOIN sites s ON o.site_id = s.site_id LEFT JOIN transporters t ON o.transporter_id = t.transporter_id
+            LEFT JOIN warehouse_brands wb ON LOWER(wb.brand) = LOWER(p.brand) AND wb.warehouse_id = o.warehouse_id AND wb.is_active = TRUE
+            LEFT JOIN warehouse_keepers wk ON wk.warehouse_keeper_id = wb.warehouse_keeper_id LEFT JOIN lsa ON lsa.order_id = o.order_id
+           WHERE o.payment_type = 'cash' AND (cs.total_collected IS NULL OR cs.total_collected < o.total_amount) AND ${DATE_RANGE("o.order_date", 1, 2)})
+     SELECT CASE WHEN rn = 1 THEN order_id::text ELSE '' END AS "Order No", TO_CHAR(order_date::date, 'DD-MM-YYYY') AS "Order Date", brand AS "Brand Name",
+            grade AS "Brand Grade", quantity AS "Number of Bags", total_price AS "Price", party_name AS "Party Name", site_name AS "Site Name",
+            transporter_name AS "Assigned Transporter", warehouse_keeper AS "Warehouse Keeper", sub_dealer AS "Sub Dealer",
+            loading_slip_numbers AS "Loading Slip Number", delivery_terms AS "Delivery Terms"
+       FROM base ORDER BY order_id DESC, brand`,
+    [query.get("start") ?? "", query.get("end") ?? ""],
+  );
+});

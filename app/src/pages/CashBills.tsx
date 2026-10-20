@@ -1,127 +1,147 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Download, Wallet } from "lucide-react";
-import { useStore, fmtDate, inr, nextId, downloadCsv } from "../data/store";
-import { customerName, collectedFor, slipsFor } from "../data/lookups";
-import { Badge, Button, Card, DataTable, EmptyState, Field, Input, KV, Modal, PageHeader, SearchInput, Tabs, useToast } from "../components/ui";
+import { api, post, useAction, useGet } from "../api";
+import { exportRows, fmtDate, includes, inRange, inr, stamp, today } from "../format";
+import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Tabs, toast } from "../components/ui";
 import ListItem from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
 type Tab = "pending" | "collected";
+const last4 = (v: unknown) => String(v ?? "").replace(/.*(\d{4})$/, "$1");
 
 export default function CashBills() {
-  const { db } = useStore();
+  const [params] = useSearchParams();
   const [tab, setTab] = useState<Tab>("pending");
+  const pending = useGet<any[]>("cash-bills?tab=pending");
+  const collected = useGet<any[]>("cash-bills?tab=collected");
   const [party, setParty] = useState("");
   const [num, setNum] = useState("");
+  const [ls, setLs] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [sel, setSel] = useState<number | null>(null);
-  const [collect, setCollect] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
-  const cashOrders = db.orders.filter((o) => o.payment_type === "cash" && o.is_active);
-  const isCollected = (id: number, total: number) => collectedFor(db, id) >= total;
-  const list = useMemo(
-    () =>
-      cashOrders
-        .filter((o) => (tab === "collected") === isCollected(o.order_id, o.total_amount))
-        .filter((o) => !party || customerName(db, o.customer_id).toLowerCase().includes(party.toLowerCase()))
-        .filter((o) => !num || o.order_number.toLowerCase().includes(num.toLowerCase()) || String(o.order_id).includes(num))
-        .filter((o) => (!from || o.order_date >= from) && (!to || o.order_date.slice(0, 10) <= to))
-        .sort((a, b) => b.order_date.localeCompare(a.order_date)),
-    [db, tab, party, num, from, to],
-  );
-  const order = db.orders.find((o) => o.order_id === sel);
-  const payments = db.cashCollected.filter((c) => c.order_id === sel && c.is_active);
-  const collected = order ? collectedFor(db, order.order_id) : 0;
+  // Arriving from an order's "View Cash Bill" button
+  useEffect(() => {
+    const id = Number(params.get("order"));
+    if (!id || !pending.data || !collected.data) return;
+    setSel(id);
+    setTab(collected.data.some((o) => o.order_id === id) ? "collected" : "pending");
+  }, [params, pending.data, collected.data]);
 
-  const exportCsv = () =>
-    downloadCsv(`cash-bills-${tab}.csv`, list.map((o) => ({
-      order_id: o.order_id, order_number: o.order_number, date: fmtDate(o.order_date), customer: customerName(db, o.customer_id),
-      loading_slip: slipsFor(db, o.order_id)[0]?.loading_slip_file_name ?? "", total: o.total_amount, collected: collectedFor(db, o.order_id),
-      balance: o.total_amount - collectedFor(db, o.order_id),
-    })));
+  const source = tab === "pending" ? pending : collected;
+  const list = useMemo(() => (source.data ?? []).filter((o) =>
+    includes(o.customer_name, party) &&
+    (!num.trim() || String(o.order_id).includes(num.trim()) || last4(o.order_number).includes(num.trim())) &&
+    (!ls.trim() || includes(o.loading_slip_file_name, ls) || last4(o.loading_slip_number).includes(ls.trim())) &&
+    inRange(o.order_date, from, to)), [source.data, party, num, ls, from, to]);
+
+  const exportXlsx = async () => {
+    setExporting(true);
+    try {
+      const rows = await api(`cash-bills-export?tab=${tab}&start=${from}&end=${to}`);
+      const name = tab === "pending" ? "Cash Bills Pending" : "Cash Bills Collected";
+      await exportRows(rows, `${name} - ${stamp()}`, "xlsx", name);
+    } catch (e) { toast((e as Error).message, "error"); }
+    setExporting(false);
+  };
 
   return (
     <div>
       <PageHeader title="Cash Bills">
-        <Button variant="outline" icon={<Download className="h-3.5 w-3.5" />} onClick={exportCsv}>Export</Button>
+        <Button variant="outline" busy={exporting} icon={<Download className="h-3.5 w-3.5" />} onClick={exportXlsx}>Export</Button>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card className="p-3">
           <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={[
-            { value: "pending", label: "Pending", count: cashOrders.filter((o) => !isCollected(o.order_id, o.total_amount)).length },
-            { value: "collected", label: "Collected", count: cashOrders.filter((o) => isCollected(o.order_id, o.total_amount)).length },
+            { value: "pending", label: "Pending", count: pending.data?.length },
+            { value: "collected", label: "Collected", count: collected.data?.length },
           ]} />
           <div className="mt-3 space-y-2">
             <SearchInput value={party} onChange={setParty} placeholder="Search by Party Name" />
-            <SearchInput value={num} onChange={setNum} placeholder="Search by Order Number" />
             <div className="grid grid-cols-2 gap-2">
-              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              <SearchInput value={num} onChange={setNum} placeholder="Order Number" />
+              <SearchInput value={ls} onChange={setLs} placeholder="Loading Slip No." />
+              <Input type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <Input type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
           </div>
           <div className="mt-3 max-h-[calc(100vh-340px)] space-y-2 overflow-y-auto pr-1">
+            {source.isLoading && <Loading />}
+            {source.error && <ErrorBox error={source.error} />}
             {list.map((o) => (
               <ListItem key={o.order_id} active={sel === o.order_id} onClick={() => setSel(o.order_id)}
-                title={`OD - ${customerName(db, o.customer_id)} - ${o.order_id}`}
-                subtitle={`${inr(o.total_amount)} · balance ${inr(o.total_amount - collectedFor(db, o.order_id))}`}
+                title={`OD - ${o.customer_name ?? ""} - ${o.order_id}`}
+                subtitle={`${o.loading_slip_file_name ?? o.order_number ?? ""} · ${inr(o.total_amount)}${tab === "pending" ? ` · due ${inr(o.total_amount - o.total_collected)}` : ""}`}
                 right={fmtDate(o.order_date)} />
             ))}
-            {!list.length && <div className="py-8 text-center text-xs text-gray-400">No cash bills</div>}
+            {source.data && !list.length && <div className="py-8 text-center text-xs text-gray-400">No cash bills</div>}
           </div>
         </Card>
-
-        {!order ? (
-          <EmptyState text="Select a cash bill to view details" />
-        ) : (
-          <Card className="p-5">
-            <div className="flex flex-wrap items-start justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-medium text-secondary">Cash Bill: Order #{order.order_id}</h2>
-                <div className="text-xs font-bold text-gray-600">{order.order_number}</div>
-              </div>
-              {collected < order.total_amount && <Button icon={<Wallet className="h-3.5 w-3.5" />} onClick={() => setCollect(true)}>Collect Payment</Button>}
-            </div>
-            <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4 md:grid-cols-4">
-              <KV label="Customer" value={customerName(db, order.customer_id)} />
-              <KV label="Total" value={inr(order.total_amount)} />
-              <KV label="Collected" value={inr(collected)} />
-              <KV label="Balance" value={<Badge tone={collected >= order.total_amount ? "green" : "red"}>{inr(order.total_amount - collected)}</Badge>} />
-            </div>
-            <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Collected Payments</h3>
-            <Card>
-              <DataTable rows={payments} rowKey={(r) => r.cash_collected_id} empty="No payments collected yet" columns={[
-                { key: "cash_collected_id", label: "ID" },
-                { key: "collection_date", label: "Collection date", render: (r) => fmtDate(r.collection_date) },
-                { key: "receipt_number", label: "Receipt number" },
-                { key: "amount", label: "Amount", align: "right", render: (r) => inr(r.amount) },
-              ]} />
-            </Card>
-            <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Order Items</h3>
-            <div className="overflow-x-auto rounded-xl border"><ItemsTable items={order.items} /></div>
-            {collect && <CollectModal orderId={order.order_id} balance={order.total_amount - collected} onClose={() => setCollect(false)} />}
-          </Card>
-        )}
+        {sel ? <CashBillDetail id={sel} /> : <EmptyState text="Select a cash bill to view details" />}
       </div>
     </div>
   );
 }
 
-function CollectModal({ orderId, balance, onClose }: { orderId: number; balance: number; onClose: () => void }) {
-  const { update } = useStore();
-  const toast = useToast();
-  const [amount, setAmount] = useState(balance);
-  const [receipt, setReceipt] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+function CashBillDetail({ id }: { id: number }) {
+  const { data: o, error, isLoading } = useGet<any>(`cash-bills/${id}`);
+  const [collect, setCollect] = useState(false);
+  if (isLoading) return <Card className="p-5"><Loading /></Card>;
+  if (error || !o) return <Card className="p-5"><ErrorBox error={error} /></Card>;
+  const itemsTotal = o.items.reduce((a: number, x: any) => a + Number(x.total_price ?? Number(x.quantity) * Number(x.unit_price)), 0);
+  const paid = o.payments.reduce((a: number, x: any) => a + Number(x.amount), 0);
+  const pendingAmt = itemsTotal - paid;
   return (
-    <Modal open onClose={onClose} title="Collect Payment" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={!amount || amount > balance || !receipt} onClick={() => {
-      update((d) => d.cashCollected.push({ cash_collected_id: nextId(d.cashCollected, "cash_collected_id"), order_id: orderId, collection_date: new Date(date).toISOString(), receipt_number: receipt, amount, is_active: true }));
-      toast("Payment recorded"); onClose();
-    }}>Save</Button></>}>
+    <Card className="min-w-0 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-medium text-secondary">Cash Bill: Order #{o.order_id}</h2>
+          <div className="text-xs font-bold text-gray-600">{o.order_number}</div>
+        </div>
+        {pendingAmt > 0 && <Button icon={<Wallet className="h-3.5 w-3.5" />} onClick={() => setCollect(true)}>Collect Payment</Button>}
+      </div>
+      <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Order Information</h3>
+      <div className="grid grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4 md:grid-cols-4">
+        <KV label="Name" value={o.customer_name} />
+        <KV label="Order Date" value={fmtDate(o.order_date)} />
+        <KV label="Loading Slip" value={o.loading_slip_file_name} />
+        <KV label="Bill Total" value={inr(o.total_amount ?? itemsTotal)} />
+      </div>
+      <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-medium text-secondary">Collected Payments</h3>
+        <Badge tone={pendingAmt > 0 ? "red" : "green"}>Pending: {inr(pendingAmt)}</Badge>
+      </div>
+      <Card>
+        <DataTable rows={o.payments} rowKey={(r: any) => r.cash_collected_id} empty="No payments collected yet" columns={[
+          { key: "collection_date", label: "Collection date", render: (r: any) => fmtDate(r.collection_date) },
+          { key: "receipt_number", label: "Receipt number" },
+          { key: "payment_mode", label: "Mode" },
+          { key: "amount", label: "Amount", align: "right", render: (r: any) => inr(r.amount) },
+        ]} />
+      </Card>
+      <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Order Items</h3>
+      <ItemsTable items={o.items} />
+      {collect && <CollectModal orderId={o.order_id} pending={pendingAmt} onClose={() => setCollect(false)} />}
+    </Card>
+  );
+}
+
+function CollectModal({ orderId, pending, onClose }: { orderId: number; pending: number; onClose: () => void }) {
+  const [amount, setAmount] = useState(String(pending));
+  const [receipt, setReceipt] = useState("");
+  const [date, setDate] = useState(today());
+  const save = useAction(() => post(`cash-bills/${orderId}/payments`, { amount: Number(amount), receipt_number: receipt, collection_date: date }), ["cash-bills"], { onSuccess: onClose });
+  const n = Number(amount);
+  return (
+    <Modal open onClose={onClose} title="Collect Payment" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button busy={save.isPending} disabled={!(n > 0) || n > pending || !receipt.trim()} onClick={() => save.mutate(undefined)}>Save</Button></>}>
       <div className="space-y-3">
-        <Field label={`Amount (balance ${inr(balance)})`}><Input type="number" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
-        <Field label="Receipt number"><Input value={receipt} onChange={(e) => setReceipt(e.target.value)} placeholder="RC-00000" /></Field>
-        <Field label="Collection date"><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label={`Amount Collected (pending ${inr(pending)})`}><Input id="cc-amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
+        {n > pending && <p className="text-xs text-red-700">That's more than the pending amount.</p>}
+        <Field label="Receipt Number"><Input id="cc-receipt" value={receipt} onChange={(e) => setReceipt(e.target.value)} placeholder="Enter receipt number" /></Field>
+        <Field label="Collection Date"><Input id="cc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       </div>
     </Modal>
   );

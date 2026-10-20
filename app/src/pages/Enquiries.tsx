@@ -1,215 +1,320 @@
-import { useMemo, useState } from "react";
-import { Plus, Trash2, RotateCcw, ArrowRightCircle } from "lucide-react";
-import { useStore, fmtDate, inr, nextId } from "../data/store";
-import { customerName, siteOf, addressOf, warehouseName, transporterName, lineTotal } from "../data/lookups";
-import type { Enquiry, LineItem, PaymentType } from "../data/types";
-import { Badge, Button, Card, EmptyState, Field, Input, KV, Modal, PageHeader, SearchInput, Select, Tabs, Textarea, useToast, ask } from "../components/ui";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Trash2, RotateCcw, ArrowRightCircle, Send, X } from "lucide-react";
+import { api, patch, post, useAction, useGet } from "../api";
+import { fmtDate, includes, inRange, inr, today } from "../format";
+import { ask, Badge, Button, Card, Checkbox, Combobox, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Select, Tabs, Textarea, toast } from "../components/ui";
 import ListItem from "../components/ListItem";
-import ItemsEditor, { ItemsTable } from "../components/ItemsEditor";
+import { ItemsTable } from "../components/ItemsEditor";
 
-type Tab = "ongoing" | "past" | "deleted";
+type Tab = "0" | "1" | "5";
+const TABS: { value: Tab; label: string }[] = [{ value: "0", label: "Ongoing" }, { value: "1", label: "Past" }, { value: "5", label: "Deleted" }];
 
 export default function Enquiries() {
-  const { db, update } = useStore();
-  const toast = useToast();
-  const [tab, setTab] = useState<Tab>("ongoing");
+  const enquiries = useGet<any[]>("enquiries");
+  const [tab, setTab] = useState<Tab>("0");
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [sel, setSel] = useState<number | null>(null);
   const [showNew, setShowNew] = useState(false);
 
-  const inTab = (e: Enquiry, t: Tab) => (t === "deleted" ? !e.is_active : e.is_active && (t === "ongoing" ? e.enquiry_status === "ongoing" : e.enquiry_status !== "ongoing"));
   const list = useMemo(
-    () =>
-      db.enquiries
-        .filter((e) => inTab(e, tab))
-        .filter((e) => !q || customerName(db, e.customer_id).toLowerCase().includes(q.toLowerCase()))
-        .filter((e) => (!from || e.enquiry_date >= from) && (!to || e.enquiry_date.slice(0, 10) <= to))
-        .sort((a, b) => b.enquiry_date.localeCompare(a.enquiry_date)),
-    [db, tab, q, from, to],
+    () => (enquiries.data ?? []).filter((e) => e.enquiry_status === tab && includes(e.customer_name, q) && (tab === "5" || inRange(e.enquiry_date, from, to))),
+    [enquiries.data, tab, q, from, to],
   );
-  const enq = db.enquiries.find((e) => e.enquiry_id === sel);
-
-  const setActive = (active: boolean) => {
-    update((d) => { d.enquiries.find((e) => e.enquiry_id === sel)!.is_active = active; });
-    toast(active ? "Enquiry restored" : "Enquiry deleted");
-  };
-
-  const createOrder = () => {
-    if (!enq) return;
-    update((d) => {
-      const e = d.enquiries.find((x) => x.enquiry_id === enq.enquiry_id)!;
-      e.enquiry_status = "converted";
-      const id = nextId(d.orders, "order_id");
-      const yy = new Date().getFullYear() % 100;
-      d.orders.push({
-        order_id: id, order_number: `SO/${yy}-${yy + 1}/${String(d.orders.length + 101).padStart(4, "0")}`,
-        enquiry_id: e.enquiry_id, order_date: new Date().toISOString(), payment_type: e.type, order_status: "ongoing",
-        total_amount: lineTotal(e.items), billing_address_id: e.billing_address_id, site_id: e.site_id,
-        otp: String(1000 + Math.floor(Math.random() * 9000)), invoice_id: null, transporter_id: e.transporter_id,
-        vehicle_id: null, customer_id: e.customer_id, warehouse_id: e.warehouse_id, po_number: "", sub_dealer: "",
-        delivery_terms: "Delivered at Site", is_active: true, items: e.items.map((x) => ({ ...x })),
-      });
-    });
-    toast("Order created from enquiry");
-  };
 
   return (
     <div>
       <PageHeader title="Enquiries">
         <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowNew(true)}>New</Button>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card className="p-3">
-          <Tabs
-            value={tab}
-            onChange={(t) => { setTab(t); setSel(null); }}
-            tabs={(["ongoing", "past", "deleted"] as Tab[]).map((t) => ({ value: t, label: t[0].toUpperCase() + t.slice(1), count: db.enquiries.filter((e) => inTab(e, t)).length }))}
-          />
+          <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (enquiries.data ?? []).filter((e) => e.enquiry_status === t.value).length }))} />
           <div className="mt-3 space-y-2">
             <SearchInput value={q} onChange={setQ} placeholder="Search by Customer" />
-            <div className="grid grid-cols-2 gap-2">
-              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} title="From" />
-              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="To" />
-            </div>
+            {tab !== "5" && (
+              <div className="grid grid-cols-2 gap-2">
+                <Input type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />
+                <Input type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />
+              </div>
+            )}
           </div>
           <div className="mt-3 max-h-[calc(100vh-300px)] space-y-2 overflow-y-auto pr-1">
+            {enquiries.isLoading && <Loading />}
+            {enquiries.error && <ErrorBox error={enquiries.error} />}
             {list.map((e) => (
-              <ListItem
-                key={e.enquiry_id}
-                active={sel === e.enquiry_id}
-                onClick={() => setSel(e.enquiry_id)}
-                title={`EN - ${e.enquiry_id} - ${customerName(db, e.customer_id)}`}
-                tag={<Badge tone={e.type === "cash" ? "yellow" : "blue"}>{e.type}</Badge>}
-                right={fmtDate(e.enquiry_date)}
-              />
+              <ListItem key={e.enquiry_id} active={sel === e.enquiry_id} onClick={() => setSel(e.enquiry_id)}
+                title={`EN - ${e.enquiry_id} - ${e.customer_name ?? ""}`}
+                tag={e.type && <Badge tone={e.type === "External" ? "purple" : "blue"}>{e.type}</Badge>}
+                right={fmtDate(e.enquiry_date)} />
             ))}
-            {!list.length && <div className="py-8 text-center text-xs text-gray-400">No enquiries</div>}
+            {enquiries.data && !list.length && <div className="py-8 text-center text-xs text-gray-400">No enquiries</div>}
           </div>
         </Card>
-
-        {!enq ? (
-          <EmptyState text="Select an enquiry to view details" />
-        ) : (
-          <Card className="p-5">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-medium text-secondary">Enquiry #{enq.enquiry_id}</h2>
-                <div className="text-xs text-gray-500">{customerName(db, enq.customer_id)} · {fmtDate(enq.enquiry_date)}</div>
-              </div>
-              <div className="flex gap-2">
-                {enq.is_active ? (
-                  <>
-                    <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => await ask("Delete this enquiry?") && setActive(false)}>Delete Enquiry</Button>
-                    {enq.enquiry_status === "ongoing" && <Button icon={<ArrowRightCircle className="h-3.5 w-3.5" />} onClick={createOrder}>Create Order</Button>}
-                  </>
-                ) : (
-                  <Button variant="success" icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => setActive(true)}>Restore</Button>
-                )}
-              </div>
-            </div>
-            <EnquirySummary enq={enq} />
-            <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Enquiry Items</h3>
-            <div className="overflow-x-auto rounded-xl border"><ItemsTable items={enq.items} /></div>
-          </Card>
-        )}
+        {sel ? <EnquiryDetail id={sel} onMoved={(t) => { setTab(t); if (t === "5" || t === "1") setSel(null); }} /> : <EmptyState text="Select an enquiry to view details" />}
       </div>
-      {showNew && <NewEnquiryModal onClose={() => setShowNew(false)} onCreated={(id) => { setTab("ongoing"); setSel(id); }} />}
+      {showNew && <NewEnquiryModal onClose={() => setShowNew(false)} onCreated={(id) => { setTab("0"); setSel(id); }} />}
     </div>
   );
 }
 
-function EnquirySummary({ enq }: { enq: Enquiry }) {
-  const { db } = useStore();
-  const c = db.customers.find((x) => x.customer_id === enq.customer_id);
-  const site = siteOf(db, enq.site_id);
-  const addr = addressOf(db, enq.billing_address_id);
+function EnquiryDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void }) {
+  const { data: e, error, isLoading } = useGet<any>(`enquiries/${id}`);
+  const warehouses = useGet<any[]>("warehouses");
+  const transporters = useGet<any[]>(e?.warehouse_id ? `warehouses/${e.warehouse_id}/transporter-options` : null);
+  const del = useAction(() => post(`enquiries/${id}/delete`), ["enquiries"], { onSuccess: () => onMoved("5") });
+  const restore = useAction(() => post(`enquiries/${id}/restore`), ["enquiries"], { onSuccess: () => onMoved("0") });
+  const createOrder = useAction(() => post(`enquiries/${id}/create-order`), ["enquiries", "orders", "dashboard"], { onSuccess: () => onMoved("1") });
+  const setTransport = useAction((body: object) => patch(`enquiries/${id}/transport`, body), ["enquiries"], { quiet: true });
+  const notify = useAction(() => post(`enquiries/${id}/notify-transporter`), [], { onSuccess: (r) => toast(r.note ?? "Enquiry sent to transporter", r.sent === false ? "warn" : "ok") });
+
+  if (isLoading) return <Card className="p-5"><Loading /></Card>;
+  if (error || !e) return <Card className="p-5"><ErrorBox error={error} /></Card>;
+  const b = e.billing_address ?? {}, d = e.delivery_address ?? {};
+  const total = e.items.reduce((a: number, x: any) => a + Number(x.total_price ?? Number(x.quantity) * Number(x.unit_price)), 0);
+
   return (
-    <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4 md:grid-cols-4">
-      <KV label="Customer" value={c?.name} />
-      <KV label="Phone" value={c?.phone} />
-      <KV label="GSTIN" value={c?.gstin} />
-      <KV label="Payment" value={<Badge tone={enq.type === "cash" ? "yellow" : "blue"}>{enq.type}</Badge>} />
-      <KV label="Billing Address" value={addr && `${addr.line1}, ${addr.city}`} />
-      <KV label="Site" value={site?.site_name} />
-      <KV label="Site Person" value={site && `${site.site_person_name} (${site.site_person_contact})`} />
-      <KV label="Delivery Date" value={fmtDate(enq.delivery_date)} />
-      <KV label="Warehouse" value={warehouseName(db, enq.warehouse_id)} />
-      <KV label="Transporter" value={transporterName(db, enq.transporter_id)} />
-      <KV label="Total" value={inr(lineTotal(enq.items))} />
-      <KV label="Remarks" value={enq.remarks} />
-    </div>
+    <Card className="min-w-0 p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-lg font-medium text-secondary">Enquiry #{e.enquiry_id}</h2>
+          <div className="text-xs text-gray-500">{fmtDate(e.enquiry_date)}{e.type && ` · ${e.type}`}</div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {e.enquiry_status === "0" && (
+            <>
+              <Button variant="danger" busy={del.isPending} icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => (await ask(`Delete enquiry #${id}? The customer gets a rejection message on WhatsApp.`, "Delete")) && del.mutate(undefined)}>Delete Enquiry</Button>
+              <Button busy={createOrder.isPending} disabled={e.warehouse_id == null || e.transporter_id == null} title={e.warehouse_id == null || e.transporter_id == null ? "Set the warehouse and transporter first" : undefined}
+                icon={<ArrowRightCircle className="h-3.5 w-3.5" />} onClick={() => createOrder.mutate(undefined)}>Create Order</Button>
+            </>
+          )}
+          {e.enquiry_status === "5" && <Button variant="success" busy={restore.isPending} icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => restore.mutate(undefined)}>Restore</Button>}
+        </div>
+      </div>
+
+      <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Customer Information</h3>
+      <div className="grid grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4 md:grid-cols-4">
+        <KV label="Customer" value={e.customer_name} />
+        <KV label="Phone" value={[e.customer_phone, e.additional_phone_1, e.additional_phone_2].filter(Boolean).join(", ")} />
+        <KV label="GSTIN" value={e.gstin} />
+        <KV label="PAN" value={e.pan} />
+        <KV label="ZB Customer ID" value={e.zb_customer_id} />
+        <KV label="TCS" value={e.tcs_status ? "Applicable" : "No"} />
+        <KV label="Billing Address" value={[b.line1, b.line2, b.city, b.state, b.pincode].filter(Boolean).join(", ")} />
+        <KV label="Delivery Date" value={fmtDate(e.delivery_date)} />
+        <KV label="Site" value={e.site_name} />
+        <KV label="Site Person" value={[e.site_person_name, e.site_person_contact].filter(Boolean).join(" · ")} />
+        <KV label="Delivery Address" value={[d.line1, d.line2, d.city, d.state, d.pincode].filter(Boolean).join(", ")} />
+        <KV label="Map" value={d.maps_link ? <a className="text-info underline" href={d.maps_link} target="_blank" rel="noreferrer">Open map</a> : null} />
+        {e.remarks && <KV label="Remarks" value={e.remarks} />}
+      </div>
+
+      <div className="mt-4 rounded-xl border p-4">
+        <h3 className="text-sm font-medium text-secondary">Transport Details</h3>
+        <p className="mb-3 text-xs text-gray-500">Assign a transporter and set delivery details</p>
+        <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
+          <Field label="Warehouse">
+            <Select value={e.warehouse_id ?? ""} disabled={e.enquiry_status !== "0" || setTransport.isPending} onChange={(ev) => setTransport.mutate({ warehouse_id: ev.target.value || null })}
+              placeholder="Select a warehouse" options={(warehouses.data ?? []).map((w) => ({ value: w.warehouse_id, label: w.name }))} />
+          </Field>
+          <Field label="Transporter">
+            <Select value={e.transporter_id ?? ""} disabled={e.enquiry_status !== "0" || e.warehouse_id == null || setTransport.isPending} onChange={(ev) => setTransport.mutate({ transporter_id: ev.target.value || null })}
+              placeholder="Select an option" options={(transporters.data ?? []).map((t) => ({ value: t.transporter_id, label: t.transporter_name }))} />
+          </Field>
+          <Button variant="secondary" busy={notify.isPending} disabled={e.transporter_id == null} icon={<Send className="h-3.5 w-3.5" />} onClick={() => notify.mutate(undefined)}>Notify Transporter</Button>
+        </div>
+      </div>
+
+      <div className="mb-2 mt-5 flex items-center justify-between">
+        <h3 className="text-sm font-medium text-secondary">Enquiry Items</h3>
+        <span className="text-xs text-gray-500">Total {inr(total)}</span>
+      </div>
+      <ItemsTable items={e.items} />
+    </Card>
   );
 }
+
+// ------------------------------------------------------------ New Enquiry
+
+interface Item { product_id: number; category: string; brand: string; grade: string; unit: string; quantity: number; unit_price: number }
+type Pick = { id: string | number | null; label: string };
+const emptyAddr = { line1: "", line2: "", city: "", state: "Gujarat", pincode: "" };
+const H = ({ children }: { children: string }) => <h4 className="mb-2 mt-5 text-xs font-bold uppercase tracking-wide text-gray-500 first:mt-0">{children}</h4>;
 
 function NewEnquiryModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
-  const { db, update } = useStore();
-  const toast = useToast();
-  const [customerId, setCustomerId] = useState<number | "">("");
-  const [type, setType] = useState<PaymentType>("credit");
-  const [siteId, setSiteId] = useState<number | "">("");
-  const [warehouseId, setWarehouseId] = useState<number | "">("");
-  const [transporterId, setTransporterId] = useState<number | "">("");
-  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().slice(0, 10));
+  const customers = useGet<any[]>("customers");
+  const products = useGet<any[]>("products");
+  const states = useGet<any[]>("state-codes");
+
+  const [customer, setCustomer] = useState<Pick>({ id: null, label: "" });
+  const [zbId, setZbId] = useState("");
+  const [zbCheck, setZbCheck] = useState<string>("");
+  const [phone, setPhone] = useState("+91");
+  const [phone1, setPhone1] = useState("+91");
+  const [phone2, setPhone2] = useState("+91");
+  const [gstin, setGstin] = useState("");
+  const [gstNA, setGstNA] = useState(false);
+  const [pan, setPan] = useState("");
+  const [panNA, setPanNA] = useState(false);
+  const [tcs, setTcs] = useState(false);
+  const [billing, setBilling] = useState(emptyAddr);
+  const [site, setSite] = useState<Pick>({ id: null, label: "" });
+  const [delivery, setDelivery] = useState({ ...emptyAddr, sitePersonName: "", sitePersonPhone: "+91", mapsLink: "" });
+  const [deliveryDate, setDeliveryDate] = useState(today());
   const [remarks, setRemarks] = useState("");
-  const [items, setItems] = useState<LineItem[]>([{ item_id: 1, product_id: 0, category: "", brand: "", grade: "", quantity: 0, unit: "", unit_price: 0 }]);
+  const [items, setItems] = useState<Item[]>([]);
+  const [draft, setDraft] = useState({ category: "", brand: "", grade: "", quantity: "", price: "" });
 
-  const c = db.customers.find((x) => x.customer_id === customerId);
-  const addr = c && addressOf(db, c.customer_id);
-  const sites = db.sites.filter((s) => s.customer_id === customerId);
-  const site = sites.find((s) => s.site_id === siteId);
-  const valid = c && siteId && items.length && items.every((i) => i.product_id && i.quantity > 0 && i.unit_price > 0);
+  const defaults = useGet<any>(typeof customer.id === "number" ? `customers/${customer.id}/enquiry-defaults` : null);
+  const sites: any[] = defaults.data?.sites ?? [];
 
-  const save = () => {
-    const id = nextId(db.enquiries, "enquiry_id");
-    update((d) => {
-      d.enquiries.push({
-        enquiry_id: id, customer_id: Number(customerId), enquiry_date: new Date().toISOString(), enquiry_status: "ongoing", type,
-        billing_address_id: Number(customerId), site_id: Number(siteId), remarks, warehouse_id: warehouseId ? Number(warehouseId) : null,
-        transporter_id: transporterId ? Number(transporterId) : null, delivery_date: new Date(deliveryDate).toISOString(), is_active: true,
-        items: items.map((x, i) => ({ ...x, item_id: Date.now() + i })),
-      });
-    });
-    toast(`Enquiry #${id} created`);
-    onCreated(id);
-    onClose();
+  // Fill in the customer's details when an existing customer is picked
+  useEffect(() => {
+    const d = defaults.data;
+    if (!d?.customer) return;
+    const c = d.customer;
+    setPhone(c.phone ?? "+91"); setPhone1(c.additional_phone_1 ?? "+91"); setPhone2(c.additional_phone_2 ?? "+91");
+    setGstin(c.gstin ?? ""); setGstNA(!c.gstin); setPan(c.pan ?? ""); setPanNA(!c.pan); setTcs(!!c.tcs_status); setZbId(c.zb_customer_id ?? "");
+    if (d.billing) setBilling({ line1: d.billing.line1 ?? "", line2: d.billing.line2 ?? "", city: d.billing.city ?? "", state: d.billing.state ?? "Gujarat", pincode: d.billing.pincode ?? "" });
+    setSite({ id: null, label: "" });
+  }, [defaults.data]);
+
+  const pickSite = (v: Pick) => {
+    setSite(v);
+    const s = sites.find((x) => x.site_id === v.id);
+    if (s) setDelivery({ line1: s.line1 ?? "", line2: s.line2 ?? "", city: s.city ?? "", state: s.state ?? "Gujarat", pincode: s.pincode ?? "", sitePersonName: s.site_person_name ?? "", sitePersonPhone: s.site_person_contact ?? "+91", mapsLink: s.maps_link ?? "" });
   };
 
+  const active = (products.data ?? []).filter((p) => p.is_active);
+  const categories = [...new Set(active.map((p) => p.category).filter(Boolean))].sort();
+  const brands = [...new Set(active.filter((p) => p.category === draft.category).map((p) => p.brand))].sort();
+  const grades = [...new Set(active.filter((p) => p.category === draft.category && p.brand === draft.brand).map((p) => p.grade))].sort();
+  const product = active.find((p) => p.category === draft.category && p.brand === draft.brand && p.grade === draft.grade);
+  const unit = [...new Set(active.filter((p) => p.category === draft.category).map((p) => p.unit))][0] ?? "";
+  const ltp = useGet<any>(product ? `last-price?product_id=${product.product_id}&customer_id=${typeof customer.id === "number" ? customer.id : ""}&phone=${encodeURIComponent(phone)}` : null);
+
+  const addItem = () => {
+    if (!product) return toast("Pick category, brand and grade", "warn");
+    if (!(Number(draft.quantity) > 0) || !(Number(draft.price) > 0)) return toast("Enter quantity and price", "warn");
+    setItems([...items, { product_id: product.product_id, category: product.category, brand: product.brand, grade: product.grade, unit: product.unit, quantity: Number(draft.quantity), unit_price: Number(draft.price) }]);
+    setDraft({ category: "", brand: "", grade: "", quantity: "", price: "" });
+  };
+
+  const checkZb = async () => {
+    try { const r = await api(`zoho/contacts/${encodeURIComponent(zbId)}`); setZbCheck(r.valid ? `${r.name} · ${r.message}` : `Invalid: ${r.message}`); }
+    catch (e) { setZbCheck((e as Error).message); }
+  };
+
+  const create = useAction(
+    () => post("enquiries", {
+      customerID: customer.id ?? customer.label, customerName: customer.label, zb_customer_id: zbId || null,
+      customerPhone: phone, additionalPhone1: phone1, additionalPhone2: phone2,
+      gstin: gstNA ? null : gstin, pan: panNA ? null : pan, tcsStatus: tcs,
+      billingAddress: billing,
+      deliveryAddress: { siteId: site.id, siteName: site.label, ...delivery },
+      items: items.map(({ product_id, quantity, unit_price }) => ({ product_id, quantity, unit_price })),
+      deliveryDate, remarks, source: "Internal",
+    }),
+    ["enquiries", "customers", "dashboard"],
+    { onSuccess: (r) => { toast("Enquiry created"); onCreated(r.enquiry_id); onClose(); } },
+  );
+
+  const missing = [!customer.label.trim() && "customer", phone.replace("+91", "").trim().length < 10 && "phone", !site.label.trim() && "site", !items.length && "items"].filter(Boolean);
+  const stateOptions = (states.data ?? []).map((s) => ({ value: s.state_name, label: s.state_name }));
+
   return (
-    <Modal open onClose={onClose} title="New Enquiry" size="lg" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={!valid} onClick={save}>Submit Enquiry</Button></>}>
-      <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-500">Customer Information</h4>
+    <Modal open onClose={onClose} title="New Enquiry" size="xl" footer={
+      <>
+        {missing.length > 0 && <span className="mr-auto self-center text-xs text-gray-500">Still needed: {missing.join(", ")}</span>}
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button busy={create.isPending} disabled={missing.length > 0} onClick={() => create.mutate(undefined)}>Create Enquiry</Button>
+      </>
+    }>
+      <H>Customer Information</H>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Customer Name" className="sm:col-span-2">
-          <Select value={customerId} onChange={(e) => { setCustomerId(e.target.value ? Number(e.target.value) : ""); setSiteId(""); }} placeholder="Select customer" options={db.customers.filter((x) => x.is_active).map((x) => ({ value: x.customer_id, label: x.name }))} />
+          <Combobox id="enq-customer" value={customer} onChange={(v) => { setCustomer(v); if (v.id === null) setZbId(""); }} placeholder="Select or enter name"
+            options={(customers.data ?? []).filter((c) => c.is_active).map((c) => ({ id: c.customer_id, label: c.name, hint: c.phone }))} />
         </Field>
-        <Field label="Zoho Books Customer ID"><Input readOnly value={c?.zb_customer_id ?? ""} placeholder="ZB Customer ID" /></Field>
-        <Field label="Phone"><Input readOnly value={c?.phone ?? ""} /></Field>
-        <Field label="GSTIN"><Input readOnly value={c?.gstin ?? ""} /></Field>
-        <Field label="PAN"><Input readOnly value={c?.pan ?? ""} /></Field>
-        <Field label="Payment Type">
-          <Select value={type} onChange={(e) => setType(e.target.value as PaymentType)} options={[{ value: "credit", label: "Credit" }, { value: "cash", label: "Cash" }]} />
+        <Field label="Zoho Books Customer ID">
+          <div className="flex gap-1.5">
+            <Input id="enq-zb" value={zbId} onChange={(e) => { setZbId(e.target.value); setZbCheck(""); }} placeholder="ZB Customer ID" />
+            <Button variant="outline" disabled={!zbId} onClick={checkZb}>Check</Button>
+          </div>
+          {zbCheck && <div className="mt-1 text-[11px] text-gray-500">ZB ID match: {zbCheck}</div>}
         </Field>
-        <Field label="TCS Applicable?"><Input readOnly value={c ? (c.tcs_status ? "Yes" : "No") : ""} /></Field>
+        <Field label="Phone"><Input id="enq-phone" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
+        <Field label="Additional Phone 1"><Input id="enq-phone1" value={phone1} onChange={(e) => setPhone1(e.target.value)} /></Field>
+        <Field label="Additional Phone 2"><Input id="enq-phone2" value={phone2} onChange={(e) => setPhone2(e.target.value)} /></Field>
+        <Field label="GSTIN">
+          <Input id="enq-gstin" value={gstNA ? "" : gstin} disabled={gstNA} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="Enter GSTIN" />
+          <div className="mt-1"><Checkbox label="GST Not Applicable" checked={gstNA} onChange={setGstNA} /></div>
+        </Field>
+        <Field label="PAN">
+          <Input id="enq-pan" value={panNA ? "" : pan} disabled={panNA} onChange={(e) => setPan(e.target.value.toUpperCase())} placeholder="Enter PAN" />
+          <div className="mt-1"><Checkbox label="PAN Not Applicable" checked={panNA} onChange={setPanNA} /></div>
+        </Field>
+        <Field label="TCS"><div className="pt-1.5"><Checkbox label="TCS Applicable?" checked={tcs} onChange={setTcs} /></div></Field>
       </div>
-      <h4 className="mb-2 mt-5 text-xs font-bold uppercase tracking-wide text-gray-500">Billing Address</h4>
-      <div className="rounded-xl bg-gray-50 p-3 text-xs text-gray-600">{addr ? `${addr.line1}, ${addr.line2 ? addr.line2 + ", " : ""}${addr.city}, ${addr.state} - ${addr.pincode}` : "Select a customer"}</div>
-      <h4 className="mb-2 mt-5 text-xs font-bold uppercase tracking-wide text-gray-500">Delivery Address</h4>
+
+      <H>Billing Address</H>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Site"><Select value={siteId} onChange={(e) => setSiteId(e.target.value ? Number(e.target.value) : "")} placeholder="Select site" options={sites.map((s) => ({ value: s.site_id, label: s.site_name }))} /></Field>
-        <Field label="Site Person Name"><Input readOnly value={site?.site_person_name ?? ""} /></Field>
-        <Field label="Site Person Phone"><Input readOnly value={site?.site_person_contact ?? ""} /></Field>
-        <Field label="Delivery Date"><Input type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} /></Field>
-        <Field label="Warehouse"><Select value={warehouseId} onChange={(e) => setWarehouseId(e.target.value ? Number(e.target.value) : "")} placeholder="Select warehouse" options={db.warehouses.map((w) => ({ value: w.warehouse_id, label: w.name }))} /></Field>
-        <Field label="Transporter">
-          <Select value={transporterId} onChange={(e) => setTransporterId(e.target.value ? Number(e.target.value) : "")} placeholder="Select transporter"
-            options={db.transporters.filter((t) => !warehouseId || db.transporterWarehouses.some((tw) => tw.transporter_id === t.transporter_id && tw.warehouse_id === warehouseId)).map((t) => ({ value: t.transporter_id, label: t.name }))} />
-        </Field>
+        <Field label="Address Line 1"><Input id="bill-l1" value={billing.line1} onChange={(e) => setBilling({ ...billing, line1: e.target.value })} placeholder="Enter address line 1" /></Field>
+        <Field label="Address Line 2"><Input id="bill-l2" value={billing.line2} onChange={(e) => setBilling({ ...billing, line2: e.target.value })} placeholder="Enter address line 2" /></Field>
+        <Field label="Pincode"><Input id="bill-pin" value={billing.pincode} onChange={(e) => setBilling({ ...billing, pincode: e.target.value })} placeholder="Enter pincode" /></Field>
+        <Field label="City"><Input id="bill-city" value={billing.city} onChange={(e) => setBilling({ ...billing, city: e.target.value })} placeholder="Enter city" /></Field>
+        <Field label="State"><Select id="bill-state" value={billing.state} onChange={(e) => setBilling({ ...billing, state: e.target.value })} options={stateOptions} placeholder="Select an option" /></Field>
       </div>
-      <h4 className="mb-2 mt-5 text-xs font-bold uppercase tracking-wide text-gray-500">Enquiry Items</h4>
-      <ItemsEditor items={items} onChange={setItems} />
-      <div className="mt-2 text-right text-xs">Total: <b>{inr(lineTotal(items))}</b></div>
-      <Field label="Remarks" className="mt-3"><Textarea rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></Field>
+
+      <H>Delivery Address</H>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="Site">
+          <Combobox id="enq-site" value={site} onChange={pickSite} placeholder="Select or create site" options={sites.map((s) => ({ id: s.site_id, label: s.site_name ?? `Site ${s.site_id}`, hint: s.city }))} />
+        </Field>
+        <Field label="Site Person Name"><Input id="site-person" value={delivery.sitePersonName} onChange={(e) => setDelivery({ ...delivery, sitePersonName: e.target.value })} placeholder="Enter site person name" /></Field>
+        <Field label="Site Person Phone"><Input id="site-phone" value={delivery.sitePersonPhone} onChange={(e) => setDelivery({ ...delivery, sitePersonPhone: e.target.value })} /></Field>
+        <Field label="Address Line 1"><Input id="del-l1" value={delivery.line1} onChange={(e) => setDelivery({ ...delivery, line1: e.target.value })} /></Field>
+        <Field label="Address Line 2"><Input id="del-l2" value={delivery.line2} onChange={(e) => setDelivery({ ...delivery, line2: e.target.value })} /></Field>
+        <Field label="Pincode"><Input id="del-pin" value={delivery.pincode} onChange={(e) => setDelivery({ ...delivery, pincode: e.target.value })} /></Field>
+        <Field label="City"><Input id="del-city" value={delivery.city} onChange={(e) => setDelivery({ ...delivery, city: e.target.value })} /></Field>
+        <Field label="State"><Select id="del-state" value={delivery.state} onChange={(e) => setDelivery({ ...delivery, state: e.target.value })} options={stateOptions} placeholder="Select an option" /></Field>
+        <Field label="Google Maps Link"><Input id="del-map" value={delivery.mapsLink} onChange={(e) => setDelivery({ ...delivery, mapsLink: e.target.value })} placeholder="Paste maps link here" /></Field>
+        <Field label="Delivery Date"><Input id="del-date" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} /></Field>
+      </div>
+
+      <H>Enquiry Items</H>
+      <div className="grid items-end gap-2 rounded-xl border p-3 sm:grid-cols-6">
+        <Field label="Category"><Select id="it-cat" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value, brand: "", grade: "" })} options={categories.map((c) => ({ value: c, label: c }))} placeholder="Select a category" /></Field>
+        <Field label="Brand"><Select id="it-brand" value={draft.brand} disabled={!draft.category} onChange={(e) => setDraft({ ...draft, brand: e.target.value, grade: "" })} options={brands.map((c) => ({ value: c, label: c }))} placeholder="Brand" /></Field>
+        <Field label="Grade"><Select id="it-grade" value={draft.grade} disabled={!draft.brand} onChange={(e) => setDraft({ ...draft, grade: e.target.value })} options={grades.map((c) => ({ value: c, label: c }))} placeholder="Grade" /></Field>
+        <Field label={`Quantity${unit ? ` (${unit})` : ""}`}><Input id="it-qty" type="number" min={0} value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: e.target.value })} /></Field>
+        <Field label="Price (with Tax)">
+          <Input id="it-price" type="number" min={0} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} />
+        </Field>
+        <div>
+          <div className="mb-1 text-[11px] text-gray-500">Last Price: {ltp.data?.unit_price ? `${inr(ltp.data.unit_price)} (${fmtDate(ltp.data.order_date)})` : "—"}</div>
+          <Button className="w-full" variant="secondary" icon={<Plus className="h-3.5 w-3.5" />} onClick={addItem}>Add item</Button>
+        </div>
+      </div>
+      {items.length > 0 && (
+        <div className="mt-2 overflow-x-auto rounded-xl border">
+          <table className="w-full text-xs">
+            <tbody className="tabular-nums">
+              {items.map((it, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  <td className="px-3 py-2">{it.category}</td><td className="px-3 py-2">{it.brand}</td><td className="px-3 py-2">{it.grade}</td>
+                  <td className="px-3 py-2 text-right">{it.quantity} {it.unit}</td><td className="px-3 py-2 text-right">{inr(it.unit_price)}</td>
+                  <td className="px-3 py-2 text-right font-medium">{inr(it.quantity * it.unit_price)}</td>
+                  <td className="w-8 px-2"><button aria-label="Remove item" className="rounded p-1 text-red-700 hover:bg-red-50" onClick={() => setItems(items.filter((_, j) => j !== i))}><X className="h-3.5 w-3.5" /></button></td>
+                </tr>
+              ))}
+              <tr className="bg-gray-50"><td colSpan={5} className="px-3 py-2 text-right font-medium">Total</td><td className="px-3 py-2 text-right font-bold">{inr(items.reduce((a, x) => a + x.quantity * x.unit_price, 0))}</td><td /></tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      <Field label="Remarks" className="mt-3"><Textarea id="enq-remarks" rows={2} value={remarks} onChange={(e) => setRemarks(e.target.value)} /></Field>
     </Modal>
   );
 }

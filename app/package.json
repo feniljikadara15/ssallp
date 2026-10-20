@@ -5,27 +5,41 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:api": "tsx scripts/dev-api.ts",
     "build": "tsc -b && vite build",
-    "build:single": "tsc -b && vite build --mode single",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc -b && tsc -p tsconfig.server.json",
+    "gen:schema": "node scripts/gen-schema.mjs",
+    "hash-password": "node scripts/hash-password.mjs"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@tanstack/react-query": "^5.59.20",
     "clsx": "^2.1.1",
     "lucide-react": "^0.460.0",
+    "pdf-lib": "^1.17.1",
+    "pg": "^8.13.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0",
-    "recharts": "^2.13.3"
+    "recharts": "^2.13.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/pg": "^8.11.10",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@vercel/node": "^3.2.25",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
+    "tsx": "^4.19.2",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11",
-    "vite-plugin-singlefile": "^2.0.3"
+    "vite": "^5.4.11"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

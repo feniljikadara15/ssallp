@@ -1,0 +1,37 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { handle } from "./router.js";
+
+// Adapter from a Node request (Vercel function or Vite dev server) to handle().
+export async function nodeHandler(req: IncomingMessage & { body?: unknown }, res: ServerResponse) {
+  const proto = (req.headers["x-forwarded-proto"] as string) || "http";
+  const host = (req.headers["x-forwarded-host"] as string) || req.headers.host || "localhost";
+  const url = new URL(req.url || "/", `${proto}://${host}`);
+  // Vercel rewrites /api/* to /api/main?route=*; recover the original path.
+  const path = url.searchParams.get("__route") !== null ? `/api/${url.searchParams.get("__route")}` : url.pathname;
+  url.searchParams.delete("__route");
+
+  let body: unknown = req.body;
+  if (body === undefined && req.method !== "GET" && req.method !== "HEAD") {
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const raw = Buffer.concat(chunks).toString();
+    body = raw ? JSON.parse(raw) : {};
+  } else if (typeof body === "string") body = body ? JSON.parse(body) : {};
+
+  const cookies = Object.fromEntries(
+    (req.headers.cookie || "").split(";").map((c) => c.trim().split("=")).filter((p) => p.length === 2).map(([k, v]) => [k, decodeURIComponent(v)]),
+  );
+
+  const out = await handle({ method: req.method || "GET", path, query: url.searchParams, body, cookies, origin: `${proto}://${host}` });
+  for (const [k, v] of Object.entries(out.headers ?? {})) res.setHeader(k, v);
+  res.statusCode = out.status ?? 200;
+  if (out.binary) {
+    res.setHeader("Content-Type", out.binary.contentType);
+    if (out.binary.filename) res.setHeader("Content-Disposition", `inline; filename="${out.binary.filename}"`);
+    res.end(out.binary.data);
+  } else {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Cache-Control", "no-store");
+    res.end(JSON.stringify(out.json ?? null));
+  }
+}

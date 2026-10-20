@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { X, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { X, Search, ChevronLeft, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
 import { useMemo, useState, type ReactNode, type InputHTMLAttributes, type SelectHTMLAttributes } from "react";
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
@@ -16,10 +16,12 @@ export function PageHeader({ title, children }: { title: string; children?: Reac
 }
 
 type BtnVariant = "primary" | "secondary" | "outline" | "danger" | "success" | "info" | "ghost";
-export function Button({ variant = "primary", className, icon, children, ...p }: { variant?: BtnVariant; icon?: ReactNode } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+export function Button({ variant = "primary", className, icon, busy, children, ...p }: { variant?: BtnVariant; icon?: ReactNode; busy?: boolean } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
+      type="button"
       {...p}
+      disabled={p.disabled || busy}
       className={clsx(
         "inline-flex items-center justify-center gap-1.5 rounded-xl2 px-3.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
         {
@@ -34,7 +36,7 @@ export function Button({ variant = "primary", className, icon, children, ...p }:
         className,
       )}
     >
-      {icon}
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon}
       {children}
     </button>
   );
@@ -213,14 +215,100 @@ export function KV({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-export function useToast() {
-  return (msg: string) => {
-    const el = document.createElement("div");
-    el.textContent = msg;
-    el.className = "fixed bottom-5 right-5 z-[60] rounded-xl2 bg-secondary px-4 py-2 text-xs text-white shadow-lg";
-    document.body.appendChild(el);
-    setTimeout(() => el.remove(), 2200);
-  };
+let toastStack: HTMLDivElement | null = null;
+export function toast(msg: string, tone: "ok" | "warn" | "error" = "ok") {
+  if (!toastStack || !document.body.contains(toastStack)) {
+    toastStack = document.createElement("div");
+    toastStack.className = "fixed bottom-5 right-5 z-[80] flex max-w-sm flex-col items-end gap-2";
+    document.body.appendChild(toastStack);
+  }
+  const el = document.createElement("div");
+  el.setAttribute("role", tone === "error" ? "alert" : "status");
+  el.textContent = msg;
+  el.className = clsx("rounded-xl2 px-4 py-2 text-xs text-white shadow-lg", { ok: "bg-secondary", warn: "bg-warning", error: "bg-danger" }[tone]);
+  toastStack.appendChild(el);
+  setTimeout(() => el.remove(), tone === "ok" ? 2500 : 6000);
+}
+
+export const useToast = () => toast;
+
+export function Loading({ text = "Loading…" }: { text?: string }) {
+  return (
+    <div className="flex items-center justify-center gap-2 py-10 text-xs text-gray-400">
+      <Loader2 className="h-4 w-4 animate-spin" /> {text}
+    </div>
+  );
+}
+
+export function ErrorBox({ error }: { error: unknown }) {
+  return <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{(error as Error)?.message ?? "Something went wrong"}</div>;
+}
+
+export function Checkbox({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <label className={clsx("inline-flex items-center gap-2 text-xs", disabled && "opacity-50")}>
+      <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      {label}
+    </label>
+  );
+}
+
+// Text input with suggestions: pick an existing option or type a new value.
+export function Combobox({ value, onChange, options, placeholder, id }: {
+  value: { id: string | number | null; label: string };
+  onChange: (v: { id: string | number | null; label: string }) => void;
+  options: { id: string | number; label: string; hint?: string }[];
+  placeholder?: string;
+  id?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const shown = useMemo(() => {
+    const t = value.label.trim().toLowerCase();
+    return options.filter((o) => !t || value.id !== null || o.label.toLowerCase().includes(t) || o.hint?.toLowerCase().includes(t)).slice(0, 50);
+  }, [options, value]);
+  return (
+    <div className="relative">
+      <Input
+        id={id}
+        value={value.label}
+        placeholder={placeholder}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { onChange({ id: null, label: e.target.value }); setOpen(true); }}
+      />
+      {value.id === null && value.label.trim() && <span className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-primary-100 px-1.5 text-[10px] text-primary-700">new</span>}
+      {open && shown.length > 0 && (
+        <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border bg-white py-1 shadow-lg">
+          {shown.map((o) => (
+            <button type="button" key={o.id} onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange({ id: o.id, label: o.label }); setOpen(false); }}
+              className={clsx("block w-full px-3 py-1.5 text-left text-xs hover:bg-primary-50", value.id === o.id && "bg-primary-50")}>
+              {o.label}{o.hint && <span className="ml-2 text-gray-400">{o.hint}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function Menu({ label, items, variant = "outline", icon, disabled }: { label: string; items: { label: string; onClick: () => void; disabled?: boolean }[]; variant?: BtnVariant; icon?: ReactNode; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative" onBlur={(e) => !e.currentTarget.contains(e.relatedTarget) && setOpen(false)}>
+      <Button variant={variant} icon={icon} disabled={disabled} onClick={() => setOpen(!open)}>
+        {label} <ChevronDown className="h-3.5 w-3.5" />
+      </Button>
+      {open && (
+        <div className="absolute right-0 z-20 mt-1 min-w-[220px] rounded-lg border bg-white py-1 shadow-lg">
+          {items.map((it) => (
+            <button key={it.label} disabled={it.disabled} onClick={() => { setOpen(false); it.onClick(); }} className="block w-full px-3 py-2 text-left text-xs hover:bg-primary-50 disabled:opacity-40">
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // In-page confirmation dialog; resolves true when the user confirms.

@@ -1,147 +1,174 @@
 import { useMemo, useState } from "react";
-import { Download, Pencil, Plus, Users, UserCheck, MapPin } from "lucide-react";
-import { useStore, nextId, downloadCsv } from "../data/store";
-import type { Customer, Site } from "../data/types";
-import { Badge, Button, Card, DataTable, Field, Input, Modal, PageHeader, SearchInput, Select, Stat, Textarea, useToast } from "../components/ui";
-
-const blank = (): Customer => ({ customer_id: 0, name: "", email: "", phone: "", additional_phone_1: "", additional_phone_2: "", gstin: "", pan: "", tcs_status: false, customer_type: "Business", zb_customer_id: "", remarks: "", is_active: true, created_at: new Date().toISOString() });
+import { Download, Pencil, Plus, Users, UserCheck, Import, Trash2 } from "lucide-react";
+import { api, del, patch, post, useAction, useGet } from "../api";
+import { exportRows } from "../format";
+import { ask, Badge, Button, Card, Checkbox, DataTable, ErrorBox, Field, Input, Loading, Modal, PageHeader, SearchInput, Select, Stat, Textarea, toast } from "../components/ui";
 
 export default function Customers() {
-  const { db } = useStore();
+  const customers = useGet<any[]>("customers");
   const [q, setQ] = useState("");
   const [active, setActive] = useState("");
-  const [edit, setEdit] = useState<Customer | null>(null);
-  const [sitesFor, setSitesFor] = useState<Customer | null>(null);
-  const toast = useToast();
+  const [edit, setEdit] = useState<any | null>(null);
+  const [importing, setImporting] = useState(false);
 
-  const rows = useMemo(
-    () =>
-      db.customers
-        .filter((c) => !active || String(c.is_active) === active)
-        .filter((c) => !q || [c.name, c.phone, c.gstin, c.pan, c.zb_customer_id].join(" ").toLowerCase().includes(q.toLowerCase())),
-    [db.customers, q, active],
-  );
+  const all = customers.data ?? [];
+  const rows = useMemo(() => all
+    .filter((c) => !active || String(c.is_active) === active)
+    .filter((c) => !q.trim() || [c.name, c.phone, c.gstin, c.pan, c.zb_customer_id, c.customer_id].join(" ").toLowerCase().includes(q.trim().toLowerCase())), [all, q, active]);
 
   return (
     <div>
       <PageHeader title="Customers">
-        <Button variant="outline" icon={<Download className="h-3.5 w-3.5" />} onClick={() => downloadCsv("customers.csv", rows as never)}>Download</Button>
-        <Button variant="secondary" onClick={() => toast("Import from Zoho Books will connect once the backend API is live")}>Import Customer</Button>
-        <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setEdit(blank())}>Add Customer</Button>
+        <Button variant="secondary" icon={<Import className="h-3.5 w-3.5" />} onClick={() => setImporting(true)}>Import Customer</Button>
       </PageHeader>
       <div className="mb-4 grid gap-4 sm:grid-cols-2">
-        <Stat label="Active Customer Count" value={db.customers.filter((c) => c.is_active).length} icon={<UserCheck className="h-5 w-5" />} />
-        <Stat label="Total Customer Count" value={db.customers.length} icon={<Users className="h-5 w-5" />} />
+        <Stat label="Active Customer Count" value={all.filter((c) => c.is_active).length} icon={<UserCheck className="h-5 w-5" />} />
+        <Stat label="Total Customer Count" value={all.length} icon={<Users className="h-5 w-5" />} />
       </div>
       <Card>
-        <div className="flex flex-wrap gap-2 border-b p-3">
-          <div className="w-72"><SearchInput value={q} onChange={setQ} placeholder="Search Customers..." /></div>
-          <div className="w-48"><Select value={active} onChange={(e) => setActive(e.target.value)} placeholder="Filter by Active/Inactive" options={[{ value: "true", label: "Active" }, { value: "false", label: "In Active" }]} /></div>
+        <div className="flex flex-wrap items-center gap-2 border-b p-3">
+          <div className="w-full sm:w-72"><SearchInput value={q} onChange={setQ} placeholder="Search Customers..." /></div>
+          <div className="w-full sm:w-52"><Select value={active} onChange={(e) => setActive(e.target.value)} placeholder="Filter by Active/Inactive" options={[{ value: "true", label: "Active" }, { value: "false", label: "In Active" }]} /></div>
+          <Button variant="ghost" className="ml-auto" icon={<Download className="h-3.5 w-3.5" />} onClick={() => exportRows(rows.map(({ customer_id, name, phone, gstin, pan, tcs_status, zb_customer_id, is_active }) => ({ customer_id, name, phone, gstin, pan, tcs: tcs_status ? "Yes" : "No", zb_customer_id, is_active })), "Customers", "csv").catch((e) => toast(e.message, "error"))}>Download</Button>
         </div>
-        <DataTable rows={rows} rowKey={(r) => r.customer_id} pageSize={15} columns={[
-          { key: "customer_id", label: "Customer ID" },
-          { key: "name", label: "Name", render: (r) => <span className="font-medium">{r.name}</span> },
-          { key: "phone", label: "Phone" },
-          { key: "gstin", label: "GSTIN" },
-          { key: "pan", label: "PAN" },
-          { key: "tcs_status", label: "TCS", render: (r) => (r.tcs_status ? <Badge tone="purple">Yes</Badge> : <Badge>No</Badge>) },
-          { key: "zb_customer_id", label: "ZB Customer ID" },
-          { key: "is_active", label: "Is Active", render: (r) => <Badge tone={r.is_active ? "green" : "red"}>{r.is_active ? "Active" : "Inactive"}</Badge> },
-          { key: "action", label: "Action", render: (r) => (
-            <div className="flex gap-1">
-              <Button variant="ghost" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => setEdit(r)}>Edit</Button>
-              <Button variant="ghost" icon={<MapPin className="h-3.5 w-3.5" />} onClick={() => setSitesFor(r)}>Sites</Button>
-            </div>
-          ) },
-        ]} />
+        {customers.error && <div className="p-3"><ErrorBox error={customers.error} /></div>}
+        {customers.isLoading ? <Loading /> : (
+          <DataTable rows={rows} rowKey={(r: any) => r.customer_id} pageSize={15} columns={[
+            { key: "customer_id", label: "Customer ID" },
+            { key: "name", label: "Name", render: (r: any) => <span className="font-medium">{r.name}</span> },
+            { key: "phone", label: "Phone" },
+            { key: "gstin", label: "GSTIN" },
+            { key: "pan", label: "PAN" },
+            { key: "tcs_status", label: "TCS", render: (r: any) => (r.tcs_status ? <Badge tone="purple">Yes</Badge> : <Badge>No</Badge>) },
+            { key: "zb_customer_id", label: "ZB Customer ID" },
+            { key: "is_active", label: "Is Active", render: (r: any) => <Badge tone={r.is_active ? "green" : "red"}>{r.is_active ? "Active" : "Inactive"}</Badge> },
+            { key: "action", label: "Action", render: (r: any) => <Button variant="ghost" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => setEdit(r)}>Edit</Button> },
+          ]} />
+        )}
       </Card>
-      {edit && <CustomerModal customer={edit} onClose={() => setEdit(null)} />}
-      {sitesFor && <SitesModal customer={sitesFor} onClose={() => setSitesFor(null)} />}
+      {edit && <EditCustomerModal customer={edit} onClose={() => setEdit(null)} />}
+      {importing && <ImportModal onClose={() => setImporting(false)} />}
     </div>
   );
 }
 
-function CustomerModal({ customer, onClose }: { customer: Customer; onClose: () => void }) {
-  const { db, update } = useStore();
-  const toast = useToast();
-  const [c, setC] = useState(customer);
-  const addr0 = db.addresses.find((a) => a.customer_id === customer.customer_id);
-  const [addr, setAddr] = useState({ line1: addr0?.line1 ?? "", line2: addr0?.line2 ?? "", city: addr0?.city ?? "", state: addr0?.state ?? "Gujarat", pincode: addr0?.pincode ?? "" });
-  const set = (p: Partial<Customer>) => setC({ ...c, ...p });
-  const isNew = !customer.customer_id;
-  const save = () => {
-    update((d) => {
-      if (isNew) {
-        const id = nextId(d.customers, "customer_id");
-        d.customers.push({ ...c, customer_id: id });
-        d.addresses.push({ address_id: nextId(d.addresses, "address_id"), customer_id: id, ...addr });
-      } else {
-        Object.assign(d.customers.find((x) => x.customer_id === c.customer_id)!, c);
-        const a = d.addresses.find((x) => x.customer_id === c.customer_id);
-        if (a) Object.assign(a, addr);
-        else d.addresses.push({ address_id: nextId(d.addresses, "address_id"), customer_id: c.customer_id, ...addr });
-      }
-    });
-    toast(isNew ? "Customer created" : "Customer updated");
-    onClose();
-  };
+function EditCustomerModal({ customer, onClose }: { customer: any; onClose: () => void }) {
+  const states = useGet<any[]>("state-codes");
+  const sites = useGet<any[]>(`customers/${customer.customer_id}/sites`);
+  const [c, setC] = useState({
+    name: customer.name ?? "", email: customer.email ?? "", phone: customer.phone ?? "", additional_phone_1: customer.additional_phone_1 ?? "", additional_phone_2: customer.additional_phone_2 ?? "",
+    gstin: customer.gstin ?? "", pan: customer.pan ?? "", customer_type: customer.customer_type ?? "", remarks: customer.remarks ?? "", tcs_status: !!customer.tcs_status, is_active: !!customer.is_active,
+  });
+  const [b, setB] = useState({ line1: customer.billing_line1 ?? "", line2: customer.billing_line2 ?? "", city: customer.billing_city ?? "", state: customer.billing_state ?? "", pincode: customer.billing_pincode ?? "" });
+  const [site, setSite] = useState<any | null>(null);
+  const save = useAction(() => patch(`customers/${customer.customer_id}`, { ...c, billing: b }), ["customers"], { onSuccess: onClose });
+  const set = (p: Partial<typeof c>) => setC({ ...c, ...p });
+  const stateOptions = (states.data ?? []).map((s) => ({ value: s.state_name, label: s.state_name }));
+
   return (
-    <Modal open onClose={onClose} title={isNew ? "Add Customer" : `Edit ${customer.name}`} size="lg" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button disabled={!c.name || !c.phone} onClick={save}>Save</Button></>}>
+    <Modal open onClose={onClose} title={`Edit Customer - ${customer.name}${customer.zb_customer_id ? ` [${customer.zb_customer_id}]` : ""}`} size="xl"
+      footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button busy={save.isPending} disabled={!c.name.trim()} onClick={() => save.mutate(undefined)}>Save</Button></>}>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Name" className="sm:col-span-2"><Input value={c.name} onChange={(e) => set({ name: e.target.value })} /></Field>
-        <Field label="Customer Type"><Select value={c.customer_type} onChange={(e) => set({ customer_type: e.target.value as Customer["customer_type"] })} options={[{ value: "Business", label: "Business" }, { value: "Individual", label: "Individual" }]} /></Field>
-        <Field label="Phone"><Input value={c.phone} onChange={(e) => set({ phone: e.target.value })} /></Field>
-        <Field label="Additional Phone 1"><Input value={c.additional_phone_1} onChange={(e) => set({ additional_phone_1: e.target.value })} /></Field>
-        <Field label="Additional Phone 2"><Input value={c.additional_phone_2} onChange={(e) => set({ additional_phone_2: e.target.value })} /></Field>
-        <Field label="Email"><Input value={c.email} onChange={(e) => set({ email: e.target.value })} /></Field>
-        <Field label="GSTIN"><Input value={c.gstin} onChange={(e) => set({ gstin: e.target.value.toUpperCase() })} /></Field>
-        <Field label="PAN"><Input value={c.pan} onChange={(e) => set({ pan: e.target.value.toUpperCase() })} /></Field>
-        <Field label="ZB Customer ID"><Input value={c.zb_customer_id} onChange={(e) => set({ zb_customer_id: e.target.value })} /></Field>
-        <Field label="TCS Applicable?"><Select value={String(c.tcs_status)} onChange={(e) => set({ tcs_status: e.target.value === "true" })} options={[{ value: "false", label: "No" }, { value: "true", label: "Yes" }]} /></Field>
-        <Field label="Status"><Select value={String(c.is_active)} onChange={(e) => set({ is_active: e.target.value === "true" })} options={[{ value: "true", label: "Active" }, { value: "false", label: "Inactive" }]} /></Field>
+        <Field label="Name"><Input id="c-name" value={c.name} onChange={(e) => set({ name: e.target.value })} /></Field>
+        <Field label="Email"><Input id="c-email" value={c.email} onChange={(e) => set({ email: e.target.value })} /></Field>
+        <Field label="Phone"><Input id="c-phone" value={c.phone} onChange={(e) => set({ phone: e.target.value })} /></Field>
+        <Field label="Additional Phone 1"><Input id="c-p1" value={c.additional_phone_1} onChange={(e) => set({ additional_phone_1: e.target.value })} /></Field>
+        <Field label="Additional Phone 2"><Input id="c-p2" value={c.additional_phone_2} onChange={(e) => set({ additional_phone_2: e.target.value })} /></Field>
+        <Field label="GST"><Input id="c-gst" value={c.gstin} onChange={(e) => set({ gstin: e.target.value.toUpperCase() })} /></Field>
+        <Field label="PAN"><Input id="c-pan" value={c.pan} onChange={(e) => set({ pan: e.target.value.toUpperCase() })} /></Field>
+        <Field label="Customer Type"><Input id="c-type" value={c.customer_type} onChange={(e) => set({ customer_type: e.target.value })} /></Field>
+        <div className="flex flex-col justify-end gap-2 pb-1">
+          <Checkbox label="TCS Applicability" checked={c.tcs_status} onChange={(v) => set({ tcs_status: v })} />
+          <Checkbox label="Customer Active" checked={c.is_active} onChange={(v) => set({ is_active: v })} />
+        </div>
+        <Field label="Remarks" className="sm:col-span-3"><Textarea id="c-remarks" rows={2} value={c.remarks} onChange={(e) => set({ remarks: e.target.value })} /></Field>
       </div>
+
       <h4 className="mb-2 mt-5 text-xs font-bold uppercase tracking-wide text-gray-500">Billing Address</h4>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Address Line 1" className="sm:col-span-2"><Input value={addr.line1} onChange={(e) => setAddr({ ...addr, line1: e.target.value })} /></Field>
-        <Field label="Address Line 2"><Input value={addr.line2} onChange={(e) => setAddr({ ...addr, line2: e.target.value })} /></Field>
-        <Field label="City"><Input value={addr.city} onChange={(e) => setAddr({ ...addr, city: e.target.value })} /></Field>
-        <Field label="State"><Input value={addr.state} onChange={(e) => setAddr({ ...addr, state: e.target.value })} /></Field>
-        <Field label="Pincode"><Input value={addr.pincode} onChange={(e) => setAddr({ ...addr, pincode: e.target.value })} /></Field>
+        <Field label="Address Line 1"><Input id="b-l1" value={b.line1} onChange={(e) => setB({ ...b, line1: e.target.value })} /></Field>
+        <Field label="Address Line 2"><Input id="b-l2" value={b.line2} onChange={(e) => setB({ ...b, line2: e.target.value })} /></Field>
+        <Field label="Pincode"><Input id="b-pin" value={b.pincode} onChange={(e) => setB({ ...b, pincode: e.target.value })} /></Field>
+        <Field label="City"><Input id="b-city" value={b.city} onChange={(e) => setB({ ...b, city: e.target.value })} /></Field>
+        <Field label="State"><Select id="b-state" value={b.state} onChange={(e) => setB({ ...b, state: e.target.value })} options={stateOptions} placeholder="Select a state" /></Field>
       </div>
-      <Field label="Remarks" className="mt-3"><Textarea rows={2} value={c.remarks} onChange={(e) => set({ remarks: e.target.value })} /></Field>
+
+      <div className="mb-2 mt-5 flex items-center justify-between">
+        <h4 className="text-xs font-bold uppercase tracking-wide text-gray-500">Site Details</h4>
+        <Button variant="outline" icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setSite({})}>Add Site</Button>
+      </div>
+      <Card>
+        {sites.isLoading ? <Loading /> : (
+          <DataTable rows={sites.data ?? []} rowKey={(r: any) => r.site_id} empty="No sites" columns={[
+            { key: "site_id", label: "Site ID" },
+            { key: "site_name", label: "Site Name" },
+            { key: "site_person_name", label: "Site Person Name" },
+            { key: "site_person_contact", label: "Contact" },
+            { key: "city", label: "City" },
+            { key: "pincode", label: "Pincode" },
+            { key: "maps_link", label: "Google Map Link", render: (r: any) => (r.maps_link ? <a className="text-info underline" href={r.maps_link} target="_blank" rel="noreferrer">Open</a> : "—") },
+            { key: "action", label: "Action", render: (r: any) => <Button variant="ghost" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => setSite(r)}>Edit</Button> },
+          ]} />
+        )}
+      </Card>
+      {site && <SiteModal customerId={customer.customer_id} site={site} states={stateOptions} onClose={() => setSite(null)} />}
     </Modal>
   );
 }
 
-function SitesModal({ customer, onClose }: { customer: Customer; onClose: () => void }) {
-  const { db, update } = useStore();
-  const empty: Omit<Site, "site_id" | "customer_id"> = { site_name: "", site_person_name: "", site_person_contact: "", maps_link: "", line1: "", city: "", state: "Gujarat", pincode: "" };
-  const [form, setForm] = useState(empty);
-  const sites = db.sites.filter((s) => s.customer_id === customer.customer_id);
+function SiteModal({ customerId, site, states, onClose }: { customerId: number; site: any; states: { value: string; label: string }[]; onClose: () => void }) {
+  const isNew = !site.site_id;
+  const [f, setF] = useState({
+    site_name: site.site_name ?? "", site_person_name: site.site_person_name ?? "", site_person_contact: site.site_person_contact ?? "+91",
+    line1: site.line1 ?? "", line2: site.line2 ?? "", city: site.city ?? "", state: site.state ?? "Gujarat", pincode: site.pincode ?? "", maps_link: site.maps_link ?? "",
+  });
+  const keys = [`customers/${customerId}/sites`, "customers"];
+  const save = useAction(() => (isNew ? post(`customers/${customerId}/sites`, f) : patch(`sites/${site.site_id}`, f)), keys, { onSuccess: onClose });
+  const remove = useAction(() => del(`sites/${site.site_id}`), keys, { onSuccess: onClose });
+  const set = (p: Partial<typeof f>) => setF({ ...f, ...p });
   return (
-    <Modal open onClose={onClose} title={`Sites · ${customer.name}`} size="lg">
-      <Card>
-        <DataTable rows={sites} rowKey={(r) => r.site_id} empty="No sites" columns={[
-          { key: "site_name", label: "Site" },
-          { key: "site_person_name", label: "Site Person" },
-          { key: "site_person_contact", label: "Contact" },
-          { key: "city", label: "City" },
-          { key: "maps_link", label: "Map", render: (r) => r.maps_link ? <a className="text-info underline" href={r.maps_link} target="_blank" rel="noreferrer">Open</a> : "—" },
-          { key: "del", label: "", render: (r) => <Button variant="ghost" className="text-red-700" onClick={() => update((d) => { d.sites = d.sites.filter((s) => s.site_id !== r.site_id); })}>Delete</Button> },
-        ]} />
-      </Card>
-      <h4 className="mb-2 mt-4 text-xs font-bold uppercase tracking-wide text-gray-500">Add Site</h4>
-      <div className="grid gap-2 sm:grid-cols-3">
-        <Input placeholder="Site name" value={form.site_name} onChange={(e) => setForm({ ...form, site_name: e.target.value })} />
-        <Input placeholder="Site person name" value={form.site_person_name} onChange={(e) => setForm({ ...form, site_person_name: e.target.value })} />
-        <Input placeholder="Site person phone" value={form.site_person_contact} onChange={(e) => setForm({ ...form, site_person_contact: e.target.value })} />
-        <Input placeholder="Address" value={form.line1} onChange={(e) => setForm({ ...form, line1: e.target.value })} />
-        <Input placeholder="City" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
-        <Input placeholder="Google Maps link" value={form.maps_link} onChange={(e) => setForm({ ...form, maps_link: e.target.value })} />
+    <Modal open onClose={onClose} title={isNew ? "Add Site" : "Edit Site Details"} size="lg" footer={
+      <>
+        {!isNew && <Button variant="danger" className="mr-auto" busy={remove.isPending} icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => (await ask(`Delete site ${site.site_name}?`, "Delete")) && remove.mutate(undefined)}>Delete</Button>}
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button busy={save.isPending} disabled={!f.site_name.trim()} onClick={() => save.mutate(undefined)}>Save</Button>
+      </>
+    }>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="Site Name"><Input id="s-name" value={f.site_name} onChange={(e) => set({ site_name: e.target.value })} /></Field>
+        <Field label="Site Person Name"><Input id="s-person" value={f.site_person_name} onChange={(e) => set({ site_person_name: e.target.value })} /></Field>
+        <Field label="Site Person Contact"><Input id="s-contact" value={f.site_person_contact} onChange={(e) => set({ site_person_contact: e.target.value })} /></Field>
+        <Field label="Address Lane 1"><Textarea id="s-l1" rows={2} value={f.line1} onChange={(e) => set({ line1: e.target.value })} /></Field>
+        <Field label="Address Lane 2"><Textarea id="s-l2" rows={2} value={f.line2} onChange={(e) => set({ line2: e.target.value })} /></Field>
+        <Field label="Map Link"><Input id="s-map" value={f.maps_link} onChange={(e) => set({ maps_link: e.target.value })} /></Field>
+        <Field label="City"><Input id="s-city" value={f.city} onChange={(e) => set({ city: e.target.value })} /></Field>
+        <Field label="State"><Select id="s-state" value={f.state} onChange={(e) => set({ state: e.target.value })} options={states} placeholder="Select a state" /></Field>
+        <Field label="Pincode"><Input id="s-pin" value={f.pincode} onChange={(e) => set({ pincode: e.target.value })} /></Field>
       </div>
-      <div className="mt-3 text-right">
-        <Button disabled={!form.site_name} icon={<Plus className="h-3.5 w-3.5" />} onClick={() => { update((d) => { d.sites.push({ ...form, site_id: nextId(d.sites, "site_id"), customer_id: customer.customer_id }); }); setForm(empty); }}>Add Site</Button>
-      </div>
+    </Modal>
+  );
+}
+
+function ImportModal({ onClose }: { onClose: () => void }) {
+  const [zbId, setZbId] = useState("");
+  const [check, setCheck] = useState<{ valid: boolean; message: string; name?: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const imp = useAction(() => post("customers/import", { zb_customer_id: zbId.trim() }), ["customers"], { onSuccess: onClose });
+  const validate = async () => {
+    setChecking(true);
+    try { setCheck(await api(`zoho/contacts/${encodeURIComponent(zbId.trim())}`)); } catch (e) { setCheck({ valid: false, message: (e as Error).message }); }
+    setChecking(false);
+  };
+  return (
+    <Modal open onClose={onClose} title="Import Single Customer from Zoho Books" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button busy={imp.isPending} disabled={!zbId.trim() || check?.valid === false} onClick={() => imp.mutate(undefined)}>Import</Button></>}>
+      <Field label="Zoho Books Customer ID">
+        <div className="flex gap-2">
+          <Input id="imp-zb" value={zbId} onChange={(e) => { setZbId(e.target.value); setCheck(null); }} placeholder="e.g. 1234567000000123456" />
+          <Button variant="outline" busy={checking} disabled={!zbId.trim()} onClick={validate}>Check Validity</Button>
+        </div>
+      </Field>
+      {check && <div className="mt-3"><Badge tone={check.valid ? "green" : "red"}>{check.valid ? "Valid" : "Invalid"}</Badge> <span className="text-xs text-gray-600">{check.name ? `${check.name} · ` : ""}{check.message}</span></div>}
+      <p className="mt-3 text-[11px] text-gray-500">Imports the contact with its billing and shipping addresses. Importing an existing customer again updates it.</p>
     </Modal>
   );
 }

@@ -1,301 +1,332 @@
-import { useMemo, useState } from "react";
-import { Download, Trash2, RotateCcw, FileText, Receipt, Truck, CheckCircle2, Pencil, Send, XCircle, PackagePlus } from "lucide-react";
-import { useStore, fmtDate, inr, nextId, downloadCsv } from "../data/store";
-import { customerName, siteOf, addressOf, warehouseName, transporterName, vehicleNumber, slipsFor, collectedFor } from "../data/lookups";
-import type { Order, OrderStatus } from "../data/types";
-import { Badge, Button, Card, EmptyState, Field, Input, KV, Modal, PageHeader, SearchInput, Select, Tabs, useToast, ask } from "../components/ui";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Download, Trash2, RotateCcw, FileText, Receipt, Truck, CheckCircle2, Send, XCircle, PackagePlus, Plus, Eye, ExternalLink, Save } from "lucide-react";
+import { api, patch, post, useAction, useGet, type Health } from "../api";
+import { exportRows, fmtDate, includes, inRange, inr, stamp, today } from "../format";
+import { ask, Badge, Button, Card, EmptyState, ErrorBox, Field, Input, KV, Loading, Menu, Modal, PageHeader, SearchInput, Select, Tabs, toast } from "../components/ui";
 import ListItem from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
-type Tab = OrderStatus | "deleted";
+type Tab = "1" | "2" | "3" | "5";
 const TABS: { value: Tab; label: string }[] = [
-  { value: "ongoing", label: "Ongoing" },
-  { value: "in_transit", label: "In-Transit" },
-  { value: "delivered", label: "Delivered" },
-  { value: "deleted", label: "Deleted" },
+  { value: "1", label: "Ongoing" }, { value: "2", label: "In-Transit" }, { value: "3", label: "Delivered" }, { value: "5", label: "Deleted" },
 ];
-const STATUS_TONE = { ongoing: "orange", in_transit: "blue", delivered: "green" } as const;
+const EXPORT_NAME: Record<string, string> = { "1": "Ongoing Orders", "2": "In Transit Orders", "3": "Delivered Orders" };
 
 export default function Orders() {
-  const { db } = useStore();
-  const [tab, setTab] = useState<Tab>("ongoing");
+  const orders = useGet<any[]>("orders");
+  const [tab, setTab] = useState<Tab>("1");
   const [party, setParty] = useState("");
   const [num, setNum] = useState("");
   const [ls, setLs] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [sel, setSel] = useState<number | null>(null);
+  const [exporting, setExporting] = useState(false);
 
-  const inTab = (o: Order, t: Tab) => (t === "deleted" ? !o.is_active : o.is_active && o.order_status === t);
-  const list = useMemo(
-    () =>
-      db.orders
-        .filter((o) => inTab(o, tab))
-        .filter((o) => !party || customerName(db, o.customer_id).toLowerCase().includes(party.toLowerCase()))
-        .filter((o) => !num || o.order_number.toLowerCase().includes(num.toLowerCase()) || String(o.order_id).includes(num))
-        .filter((o) => !ls || slipsFor(db, o.order_id).some((s) => s.loading_slip_file_name.toLowerCase().includes(ls.toLowerCase())))
-        .filter((o) => (!from || o.order_date >= from) && (!to || o.order_date.slice(0, 10) <= to))
-        .sort((a, b) => b.order_date.localeCompare(a.order_date)),
-    [db, tab, party, num, ls, from, to],
-  );
-  const order = db.orders.find((o) => o.order_id === sel);
+  const list = useMemo(() => {
+    // An order number or loading slip search finds the order regardless of the date filter.
+    const direct = num.trim() !== "" || ls.trim() !== "";
+    return (orders.data ?? []).filter((o) =>
+      o.order_status === tab &&
+      includes(o.customer_name, party) &&
+      (!num.trim() || String(o.order_id).includes(num.trim()) || includes(o.order_number, num)) &&
+      (!ls.trim() || (o.loading_slip_numbers ?? []).includes(ls.trim().replace(/^LS-?/i, "")) || includes(o.loading_slip_file_name, ls)) &&
+      (direct || tab === "5" || inRange(o.order_date, from, to)));
+  }, [orders.data, tab, party, num, ls, from, to]);
 
-  const exportCsv = () =>
-    downloadCsv(`${tab}-orders.csv`, list.flatMap((o) => o.items.map((it) => ({
-      order_id: o.order_id, order_number: o.order_number, order_date: fmtDate(o.order_date), customer: customerName(db, o.customer_id),
-      payment_type: o.payment_type, status: o.order_status, warehouse: warehouseName(db, o.warehouse_id), transporter: transporterName(db, o.transporter_id),
-      vehicle: vehicleNumber(db, o.vehicle_id), category: it.category, brand: it.brand, grade: it.grade, quantity: it.quantity, unit: it.unit,
-      unit_price: it.unit_price, line_total: it.quantity * it.unit_price,
-    }))));
+  const exportCsv = async () => {
+    setExporting(true);
+    try {
+      const rows = await api(`orders-export?status=${tab}&start=${from}&end=${to}`);
+      await exportRows(rows, `${EXPORT_NAME[tab]} ${stamp()}`, "csv");
+    } catch (e) { toast((e as Error).message, "error"); }
+    setExporting(false);
+  };
 
   return (
     <div>
       <PageHeader title="Orders">
-        <Button variant="outline" icon={<Download className="h-3.5 w-3.5" />} onClick={exportCsv} title={`Export ${tab} orders`}>Export</Button>
+        {tab !== "5" && <Button variant="outline" busy={exporting} icon={<Download className="h-3.5 w-3.5" />} onClick={exportCsv} title={`Export ${EXPORT_NAME[tab]}`}>Export</Button>}
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
         <Card className="p-3">
-          <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: db.orders.filter((o) => inTab(o, t.value)).length }))} />
+          <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (orders.data ?? []).filter((o) => o.order_status === t.value).length }))} />
           <div className="mt-3 space-y-2">
             <SearchInput value={party} onChange={setParty} placeholder="Search by Party Name" />
             <div className="grid grid-cols-2 gap-2">
               <SearchInput value={num} onChange={setNum} placeholder="Order Number" />
               <SearchInput value={ls} onChange={setLs} placeholder="Loading Slip No." />
-              <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-              <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+              {tab !== "5" && <Input type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />}
+              {tab !== "5" && <Input type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />}
             </div>
           </div>
           <div className="mt-3 max-h-[calc(100vh-340px)] space-y-2 overflow-y-auto pr-1">
+            {orders.isLoading && <Loading />}
+            {orders.error && <ErrorBox error={orders.error} />}
             {list.map((o) => (
-              <ListItem
-                key={o.order_id}
-                active={sel === o.order_id}
-                onClick={() => setSel(o.order_id)}
-                title={`OD - ${customerName(db, o.customer_id)} - ${o.order_id}`}
-                subtitle={slipsFor(db, o.order_id)[0]?.loading_slip_file_name ?? o.order_number}
-                tag={<Badge tone={o.payment_type === "cash" ? "yellow" : "blue"}>{o.payment_type}</Badge>}
-                right={fmtDate(o.order_date)}
-              />
+              <ListItem key={o.order_id} active={sel === o.order_id} onClick={() => setSel(o.order_id)}
+                title={`OD - ${o.customer_name ?? ""} - ${o.order_id}`}
+                subtitle={o.loading_slip_file_name ? <b className="text-secondary">{o.loading_slip_file_name}</b> : o.order_number}
+                tag={o.payment_type && <Badge tone={o.payment_type === "cash" ? "yellow" : "blue"}>{o.payment_type}</Badge>}
+                right={fmtDate(o.order_date)} />
             ))}
-            {!list.length && <div className="py-8 text-center text-xs text-gray-400">No orders</div>}
+            {orders.data && !list.length && <div className="py-8 text-center text-xs text-gray-400">No orders</div>}
           </div>
         </Card>
-        {order ? <OrderDetail order={order} /> : <EmptyState text="Select an order to view details" />}
+        {sel ? <OrderDetail id={sel} onMoved={(t) => setTab(t)} /> : <EmptyState text="Select an order to view details" />}
       </div>
     </div>
   );
 }
 
-function OrderDetail({ order }: { order: Order }) {
-  const { db, update } = useStore();
-  const toast = useToast();
-  const [modal, setModal] = useState<null | "transport" | "deliver" | "terms" | "cashbill">(null);
-  const c = db.customers.find((x) => x.customer_id === order.customer_id);
-  const site = siteOf(db, order.site_id);
-  const addr = addressOf(db, order.billing_address_id);
-  const slips = slipsFor(db, order.order_id);
-  const mut = (fn: (o: Order) => void) => update((d) => fn(d.orders.find((x) => x.order_id === order.order_id)!));
+const STATUS_TONE: Record<string, "orange" | "blue" | "green" | "red"> = { "1": "orange", "2": "blue", "3": "green", "5": "red" };
+const STATUS_LABEL: Record<string, string> = { "1": "Ongoing", "2": "In-Transit", "3": "Delivered", "5": "Deleted" };
 
-  const generateSlips = () => {
-    if (!order.warehouse_id) return toast("Set a warehouse first");
-    update((d) => {
-      const lsId = nextId(d.loadingSlipItems, "loading_slip_id");
-      [...new Set(order.items.map((i) => i.brand))].forEach((brand) => {
-        const id = nextId(d.loadingSlipItems, "loading_slip_item_id");
-        const n = 3000 + id;
-        d.loadingSlipItems.push({ loading_slip_item_id: id, loading_slip_id: lsId, order_id: order.order_id, loading_slip_number: `LS${n}`, loading_slip_file_name: `LS-${n}-${brand.split(" ")[0].toUpperCase()}`, brand, warehouse_id: order.warehouse_id!, transporter_id: order.transporter_id, status: "Sent", is_active: true });
-      });
-    });
-    toast("Loading slips generated & sent to warehouse keepers");
+function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void }) {
+  const navigate = useNavigate();
+  const { data: o, error, isLoading } = useGet<any>(`orders/${id}`);
+  const health = useGet<Health & { zohoOrgId?: string }>("health");
+  const [cashMode, setCashMode] = useState(false);
+  const [modal, setModal] = useState<null | "slips" | "deliver" | "cash" | "vehicle">(null);
+  useEffect(() => setCashMode(false), [id]);
+
+  const refresh = ["orders", "cash-bills", "loading-slips", "dashboard"];
+  const del = useAction(() => post(`orders/${id}/delete`), refresh, { onSuccess: () => onMoved("5") });
+  const restore = useAction(() => post(`orders/${id}/restore`), refresh, { onSuccess: () => onMoved("1") });
+  const invoice = useAction(() => post(`orders/${id}/invoice`), refresh, { onSuccess: () => onMoved("2") });
+  const cashBill = useAction(() => post(`orders/${id}/cash-bill`), refresh, { onSuccess: () => onMoved("2") });
+  const sendInvoice = useAction((to: string) => post(`orders/${id}/send-invoice`, { to }), []);
+
+  if (isLoading) return <Card className="p-5"><Loading /></Card>;
+  if (error || !o) return <Card className="p-5"><ErrorBox error={error} /></Card>;
+
+  const status = o.order_status as string;
+  const b = o.billing_address ?? {}, s = o.shipping_address ?? {};
+  const total = o.items.reduce((a: number, x: any) => a + Number(x.unit_price) * Number(x.quantity), 0);
+  const isCash = o.payment_type === "cash";
+  const zohoApp = `https://books.zoho.in/app/${health.data?.zohoOrgId ?? "60031284196"}#`;
+  const viewInvoice = async () => {
+    if (o.zb_invoice_url) return window.open(o.zb_invoice_url, "_blank", "noopener");
+    try { const r = await api(`orders/${id}/invoice-link`); window.open(r.url, "_blank", "noopener"); } catch (e) { toast((e as Error).message, "error"); }
   };
 
   return (
-    <Card className="p-5">
+    <Card className="min-w-0 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-medium text-secondary">Order #{order.order_id}</h2>
-          <div className="text-xs font-bold text-gray-600">{order.order_number}</div>
-          <div className="mt-1 flex gap-1.5">
-            <Badge tone={STATUS_TONE[order.order_status]}>{order.order_status.replace("_", " ")}</Badge>
-            <Badge tone={order.payment_type === "cash" ? "yellow" : "blue"}>{order.payment_type}</Badge>
-            {!order.is_active && <Badge tone="red">deleted</Badge>}
+          <h2 className="text-lg font-medium text-secondary">Order #{o.order_id}</h2>
+          <div className="text-xs font-bold text-gray-600">{o.order_number}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status] ?? status}</Badge>
+            {o.payment_type && <Badge tone={isCash ? "yellow" : "blue"}>{o.payment_type}</Badge>}
+            {o.zb_invoice_number && <Badge>Invoice {o.zb_invoice_number}</Badge>}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {!order.is_active ? (
-            <Button variant="success" icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => { mut((o) => (o.is_active = true)); toast("Order restored"); }}>Restore</Button>
-          ) : (
+        <div className="flex flex-wrap justify-end gap-2">
+          {status === "5" && <Button variant="success" busy={restore.isPending} icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => restore.mutate(undefined)}>Restore</Button>}
+          {status === "1" && (
             <>
-              {order.payment_type === "credit" ? (
-                order.invoice_id ? (
-                  <Button variant="info" icon={<FileText className="h-3.5 w-3.5" />} onClick={() => toast(`Opening invoice ${order.invoice_id}`)}>View Invoice</Button>
-                ) : (
-                  <Button variant="secondary" icon={<FileText className="h-3.5 w-3.5" />} onClick={() => { mut((o) => (o.invoice_id = `INV-${2200 + o.order_id}`)); toast("Invoice generated in Zoho Books"); }}>Generate Invoice</Button>
-                )
+              <Button variant="danger" busy={del.isPending} icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => (await ask(`Delete order #${id}?`, "Delete")) && del.mutate(undefined)}>Delete Order</Button>
+              {cashMode ? (
+                <Button variant="secondary" busy={cashBill.isPending} disabled={o.loading_slip_count !== 1} title={o.loading_slip_count !== 1 ? "Create the loading slips first" : undefined}
+                  icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => cashBill.mutate(undefined)}>Generate Cash Bill</Button>
               ) : (
-                <Button variant="secondary" icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => setModal("cashbill")}>{order.invoice_id ? "View Cash Bill" : "Generate Cash Bill"}</Button>
+                <Button variant="secondary" busy={invoice.isPending} disabled={o.loading_slip_count < 1 || !o.vehicle_id || !o.delivery_terms}
+                  title={o.loading_slip_count < 1 ? "Create the loading slips first" : !o.vehicle_id || !o.delivery_terms ? "Save the vehicle and delivery terms first" : undefined}
+                  icon={<FileText className="h-3.5 w-3.5" />} onClick={() => invoice.mutate(undefined)}>Generate Invoice</Button>
               )}
-              {order.invoice_id && <Button variant="outline" icon={<Send className="h-3.5 w-3.5" />} onClick={() => toast("Invoice sent to customer (with OTP) & transporter")}>Send Invoice</Button>}
-              <Button variant="danger" icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => await ask("Delete this order?") && mut((o) => (o.is_active = false))}>Delete Order</Button>
+            </>
+          )}
+          {(status === "2" || status === "3") && isCash && (
+            <Button variant="secondary" icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => navigate(`/cash-bills?order=${id}`)}>View Cash Bill</Button>
+          )}
+          {(status === "2" || status === "3") && o.zb_invoice_id && (
+            <>
+              <Button variant="info" icon={<ExternalLink className="h-3.5 w-3.5" />} onClick={() => window.open(`${zohoApp}/invoices/${o.zb_invoice_id}`, "_blank", "noopener")}>E-Invoice</Button>
+              <Menu label="Send Invoice to..." icon={<Send className="h-3.5 w-3.5" />} disabled={sendInvoice.isPending} items={[
+                { label: "Customer (with OTP)", onClick: () => sendInvoice.mutate("customer") },
+                { label: "Customer (with OTP) & Transporter", onClick: () => sendInvoice.mutate("customer_transporter") },
+              ]} />
+              <Menu label="View" icon={<Eye className="h-3.5 w-3.5" />} items={[
+                { label: "View Invoice", onClick: viewInvoice },
+                ...(total >= 50000 ? [{ label: "View E-way Bill", onClick: () => window.open(`${zohoApp}/ewaybills/new?entity_id=${o.zb_invoice_id}&entity_type=invoice`, "_blank", "noopener") }] : []),
+              ]} />
             </>
           )}
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4 md:grid-cols-4">
-        <KV label="Customer" value={c?.name} />
-        <KV label="Phone" value={c?.phone} />
-        <KV label="Order Date" value={fmtDate(order.order_date)} />
-        <KV label="Enquiry" value={`EN - ${order.enquiry_id}`} />
-        <KV label="Billing Address" value={addr && `${addr.line1}, ${addr.city}`} />
-        <KV label="Site" value={site?.site_name} />
-        <KV label="Site Person" value={site && `${site.site_person_name} (${site.site_person_contact})`} />
-        <KV label="OTP" value={order.otp} />
-        <KV label="PO Number" value={order.po_number} />
-        <KV label="Delivery Terms" value={order.delivery_terms} />
-        <KV label="Invoice" value={order.invoice_id} />
-        <KV label="Total Amount" value={inr(order.total_amount)} />
+      <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Customer Information</h3>
+      <div className="grid grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4 md:grid-cols-4">
+        <KV label="Name" value={o.customer_name} />
+        <KV label="Phone" value={o.customer_phone} />
+        <KV label="Site" value={[o.site_name, o.site_person_name, o.site_person_contact].filter(Boolean).join(" · ")} />
+        <KV label="Order Date" value={fmtDate(o.order_date)} />
+        <KV label="Billing Address" value={[b.line1, b.line2, b.city, b.state, b.pincode].filter(Boolean).join(", ")} />
+        <KV label="Delivery Address" value={[s.line1, s.line2, s.city, s.state, s.pincode].filter(Boolean).join(", ")} />
+        <KV label="Delivery Date" value={fmtDate(o.delivery_date)} />
+        <KV label={status === "1" ? "Order Value" : "Total Amount"} value={inr(o.total_amount ?? total)} />
+        {(status === "2") && o.otp && <KV label="Delivery OTP" value={o.otp} />}
+        {s.maps_link && <KV label="Map" value={<a className="text-info underline" href={s.maps_link} target="_blank" rel="noreferrer">Open map</a>} />}
       </div>
 
-      <div className="mt-4 rounded-xl border p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-medium text-secondary">Transport & Dispatch</h3>
-          {order.is_active && (
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => setModal("terms")}>PO / Terms</Button>
-              <Button variant="outline" icon={<Truck className="h-3.5 w-3.5" />} onClick={() => setModal("transport")}>Edit Transport</Button>
-              {order.order_status === "ongoing" && <Button icon={<PackagePlus className="h-3.5 w-3.5" />} onClick={() => { if (!slips.length) generateSlips(); mut((o) => (o.order_status = "in_transit")); }}>Dispatch</Button>}
-              {order.order_status === "in_transit" && <Button variant="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />} onClick={() => setModal("deliver")}>Mark Delivered</Button>}
-            </div>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-          <KV label="Warehouse" value={warehouseName(db, order.warehouse_id)} />
-          <KV label="Transporter" value={transporterName(db, order.transporter_id)} />
-          <KV label="Vehicle" value={vehicleNumber(db, order.vehicle_id)} />
-        </div>
-        <div className="mt-4">
-          <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-600">Loading Slips</span>
-            {order.is_active && !slips.length && <Button variant="ghost" onClick={generateSlips}>Generate</Button>}
-          </div>
-          {slips.length ? (
-            <div className="flex flex-wrap gap-2">
-              {slips.map((s) => (
-                <span key={s.loading_slip_item_id} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]">
-                  <b>{s.loading_slip_file_name}</b> · {s.brand}
-                  {order.is_active && order.order_status !== "delivered" && (
-                    <button title="Cancel loading slip" className="text-red-700" onClick={async () => await ask(`Cancel ${s.loading_slip_file_name}?`) && update((d) => { const x = d.loadingSlipItems.find((y) => y.loading_slip_item_id === s.loading_slip_item_id)!; x.is_active = false; x.status = "Cancelled"; })}>
-                      <XCircle className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <div className="text-xs text-gray-400">No loading slips yet</div>
-          )}
-        </div>
+      <TransportPanel order={o} onAddVehicle={() => setModal("vehicle")} onSlips={() => setModal("slips")} onDeliver={() => setModal("deliver")} />
+
+      <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-medium text-secondary">Order Details</h3>
+        {status === "1" && (
+          cashMode
+            ? <Button variant="outline" onClick={() => setCashMode(false)}>Back to invoice</Button>
+            : <Button variant="outline" icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => setModal("cash")}>CASH BILL</Button>
+        )}
       </div>
+      {cashMode && status === "1" && <div className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Cash bill mode: this order will be billed as cash instead of a Zoho invoice.</div>}
+      <ItemsTable items={o.items} />
+      {total >= 50000 && o.tcs_status && <p className="mt-2 text-[11px] text-gray-500">TCS applies to this customer.</p>}
 
-      <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Order Details</h3>
-      <div className="overflow-x-auto rounded-xl border"><ItemsTable items={order.items} /></div>
-
-      {modal === "transport" && <TransportModal order={order} onClose={() => setModal(null)} />}
-      {modal === "terms" && <TermsModal order={order} onClose={() => setModal(null)} />}
-      {modal === "deliver" && (
-        <DeliverModal order={order} onClose={() => setModal(null)} onDone={() => { mut((o) => (o.order_status = "delivered")); toast("Order marked as delivered"); setModal(null); }} />
+      {modal === "slips" && <LoadingSlipsModal order={o} onClose={() => setModal(null)} />}
+      {modal === "deliver" && <DeliverModal orderId={id} onClose={() => setModal(null)} onDone={() => { setModal(null); onMoved("3"); }} />}
+      {modal === "vehicle" && <AddVehicleModal transporterId={o.transporter_id} onClose={() => setModal(null)} />}
+      {modal === "cash" && (
+        <Modal open onClose={() => setModal(null)} title="Convert to Cash Bill" size="sm" footer={<><Button variant="outline" onClick={() => setModal(null)}>Cancel</Button><Button onClick={() => { setCashMode(true); setModal(null); }}>Confirm</Button></>}>
+          <p className="text-sm text-secondary">Are you sure you want to convert Order {id} to a Cash Bill?</p>
+        </Modal>
       )}
-      {modal === "cashbill" && <CashBillModal order={order} onClose={() => setModal(null)} />}
     </Card>
   );
 }
 
-function TransportModal({ order, onClose }: { order: Order; onClose: () => void }) {
-  const { db, update } = useStore();
-  const [wh, setWh] = useState(order.warehouse_id ?? "");
-  const [tr, setTr] = useState(order.transporter_id ?? "");
-  const [veh, setVeh] = useState(order.vehicle_id ?? "");
-  const [newVeh, setNewVeh] = useState("");
-  const transporters = db.transporters.filter((t) => !wh || db.transporterWarehouses.some((x) => x.transporter_id === t.transporter_id && x.warehouse_id === Number(wh)));
-  const save = () => {
-    update((d) => {
-      const o = d.orders.find((x) => x.order_id === order.order_id)!;
-      let vid = veh ? Number(veh) : null;
-      if (newVeh && tr) {
-        vid = nextId(d.vehicles, "vehicle_id");
-        d.vehicles.push({ vehicle_id: vid, transporter_id: Number(tr), vehicle_number: newVeh.toUpperCase().replace(/\s/g, "") });
-      }
-      o.warehouse_id = wh ? Number(wh) : null;
-      o.transporter_id = tr ? Number(tr) : null;
-      o.vehicle_id = vid;
-    });
-    onClose();
-  };
+// Transport Details + Dispatch Details panels (container17 / container38)
+function TransportPanel({ order: o, onAddVehicle, onSlips, onDeliver }: { order: any; onAddVehicle: () => void; onSlips: () => void; onDeliver: () => void }) {
+  const editable = o.order_status === "1";
+  const initial = () => ({
+    warehouse_id: o.warehouse_id ?? "", transporter_id: o.transporter_id ?? "", vehicle_id: o.vehicle_id ?? "",
+    delivery_terms: o.delivery_terms ?? "", po_number: o.po_number ?? "", sub_dealer: o.sub_dealer ?? "",
+  });
+  const [f, setF] = useState(initial);
+  useEffect(() => setF(initial()), [o.order_id, o.warehouse_id, o.transporter_id, o.vehicle_id, o.delivery_terms, o.po_number, o.sub_dealer]);
+  const warehouses = useGet<any[]>("warehouses");
+  const transporters = useGet<any[]>(f.warehouse_id ? `warehouses/${f.warehouse_id}/transporter-options` : null);
+  const vehicles = useGet<any[]>(f.transporter_id ? `transporters/${f.transporter_id}/vehicles` : null);
+  const save = useAction(() => patch(`orders/${o.order_id}`, f), ["orders"]);
+  const notify = useAction(() => post(`orders/${o.order_id}/notify-transporter`), [], { onSuccess: (r) => toast(r.sent === false ? r.note : "Order details sent to transporter", r.sent === false ? "warn" : "ok") });
+  const dirty = JSON.stringify(f) !== JSON.stringify(initial());
+  const set = (patch: Partial<ReturnType<typeof initial>>) => setF({ ...f, ...patch });
+
   return (
-    <Modal open onClose={onClose} title="Edit Transport Details" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={save}>Save</Button></>}>
-      <div className="space-y-3">
-        <Field label="Warehouse"><Select value={wh} onChange={(e) => { setWh(e.target.value); setTr(""); setVeh(""); }} placeholder="Select warehouse" options={db.warehouses.map((w) => ({ value: w.warehouse_id, label: w.name }))} /></Field>
-        <Field label="Transporter"><Select value={tr} onChange={(e) => { setTr(e.target.value); setVeh(""); }} placeholder="Select transporter" options={transporters.map((t) => ({ value: t.transporter_id, label: t.name }))} /></Field>
-        <Field label="Vehicle"><Select value={veh} onChange={(e) => setVeh(e.target.value)} placeholder="Select vehicle" options={db.vehicles.filter((v) => v.transporter_id === Number(tr)).map((v) => ({ value: v.vehicle_id, label: v.vehicle_number }))} /></Field>
-        <Field label="…or add a new vehicle number"><Input value={newVeh} onChange={(e) => setNewVeh(e.target.value)} placeholder="GJ01AB1234" disabled={!tr} /></Field>
+    <div className="mt-4 grid gap-4 xl:grid-cols-2">
+      <div className="rounded-xl border p-4">
+        <h3 className="text-sm font-medium text-secondary">Transport Details</h3>
+        <p className="mb-3 text-xs text-gray-500">Assign a transporter and set delivery details</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Warehouse"><Select id="ord-wh" value={f.warehouse_id} disabled={!editable} onChange={(e) => set({ warehouse_id: e.target.value, transporter_id: "", vehicle_id: "" })} placeholder="Select a warehouse" options={(warehouses.data ?? []).map((w) => ({ value: w.warehouse_id, label: w.name }))} /></Field>
+          <Field label="Transporter"><Select id="ord-tr" value={f.transporter_id} disabled={!editable || !f.warehouse_id} onChange={(e) => set({ transporter_id: e.target.value, vehicle_id: "" })} placeholder="Select an option" options={(transporters.data ?? []).map((t) => ({ value: t.transporter_id, label: t.transporter_name }))} /></Field>
+          <Field label="Delivery Terms"><Select id="ord-terms" value={f.delivery_terms} disabled={!editable} onChange={(e) => set({ delivery_terms: e.target.value })} placeholder="Select an option" options={["Delivery", "Ex warehouse"].map((x) => ({ value: x, label: x }))} /></Field>
+          <Field label="Vehicle Number">
+            <Select id="ord-veh" value={f.vehicle_id} disabled={!editable || !f.transporter_id} onChange={(e) => set({ vehicle_id: e.target.value })} placeholder="Select a vehicle" options={(vehicles.data ?? []).map((v) => ({ value: v.vehicle_id, label: v.vehicle_number }))} />
+          </Field>
+        </div>
+        {editable && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button variant="outline" disabled={!o.transporter_id || dirty} title={dirty ? "Save details first" : !o.transporter_id ? "Select a transporter first" : "If the vehicle number isn't listed, add it"} icon={<Plus className="h-3.5 w-3.5" />} onClick={onAddVehicle}>Add New Vehicle Number</Button>
+            <Button variant="secondary" busy={notify.isPending} disabled={!o.warehouse_id || !o.transporter_id || !o.vehicle_id || dirty} title={dirty ? "Save details first" : undefined} icon={<Truck className="h-3.5 w-3.5" />} onClick={() => notify.mutate(undefined)}>Notify Transporter</Button>
+          </div>
+        )}
+      </div>
+      <div className="rounded-xl border p-4">
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-medium text-secondary">Dispatch Details</h3>
+          {o.order_status === "2" && <Button variant="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />} onClick={onDeliver}>Confirm Delivery</Button>}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Sub Dealer"><Input id="ord-sub" value={f.sub_dealer} disabled={!editable} onChange={(e) => set({ sub_dealer: e.target.value })} placeholder="Enter sub dealer name" /></Field>
+          <Field label="PO Number"><Input id="ord-po" value={f.po_number} disabled={!editable} onChange={(e) => set({ po_number: e.target.value })} placeholder="Enter PO number" /></Field>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {editable && <Button busy={save.isPending} disabled={!dirty} icon={<Save className="h-3.5 w-3.5" />} onClick={() => save.mutate(undefined)}>Save Details</Button>}
+          {editable && <Button variant="secondary" icon={<PackagePlus className="h-3.5 w-3.5" />} onClick={onSlips}>Manage Loading Slips{o.loading_slip_items.length ? ` (${o.loading_slip_items.length})` : ""}</Button>}
+          {!editable && o.loading_slip_items.length > 0 && <Button variant="outline" icon={<Eye className="h-3.5 w-3.5" />} onClick={onSlips}>View Loading Slips</Button>}
+        </div>
+        {editable && dirty && <p className="mt-2 text-[11px] text-warning">Unsaved changes</p>}
+      </div>
+    </div>
+  );
+}
+
+function LoadingSlipsModal({ order: o, onClose }: { order: any; onClose: () => void }) {
+  const [date, setDate] = useState(today());
+  const editable = o.order_status === "1";
+  const create = useAction(() => post(`orders/${o.order_id}/loading-slips`, { date }), ["orders", "loading-slips"]);
+  const send = useAction((sid: number) => post(`loading-slip-items/${sid}/send`), ["orders", "loading-slips"]);
+  const cancel = useAction((sid: number) => post(`loading-slip-items/${sid}/cancel`), ["orders", "loading-slips"]);
+  const rows: any[] = o.loading_slip_items;
+  return (
+    <Modal open onClose={onClose} title="Manage Loading Slips" size="lg">
+      {editable && (
+        <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl bg-gray-50 p-3">
+          <Field label="Loading slip date"><Input id="ls-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Button busy={create.isPending} disabled={!o.warehouse_id} title={!o.warehouse_id ? "Save a warehouse on the order first" : undefined} icon={<PackagePlus className="h-3.5 w-3.5" />}
+            onClick={async () => (!rows.length || (await ask("Create a new set of loading slips? The current ones will be replaced.", "Create"))) && create.mutate(undefined)}>
+            Create Loading Slips
+          </Button>
+          <span className="text-[11px] text-gray-500">One slip per brand, for the order's warehouse.</span>
+        </div>
+      )}
+      <div className="overflow-x-auto rounded-xl border">
+        <table className="w-full text-xs">
+          <thead><tr className="border-b bg-gray-50 text-left text-gray-500">
+            <th className="px-3 py-2 font-medium">Loading Slip No</th><th className="px-3 py-2 font-medium">Brand</th><th className="px-3 py-2 font-medium">Warehouse Keeper</th>
+            <th className="px-3 py-2 font-medium">Keeper Phone</th><th className="px-3 py-2 font-medium">Status</th><th className="px-3 py-2" />
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.loading_slip_item_id} className="border-b last:border-0">
+                <td className="px-3 py-2"><a href={r.url} target="_blank" rel="noreferrer" className="font-bold text-info underline">{r.loading_slip_file_name}</a></td>
+                <td className="px-3 py-2">{r.brand}</td>
+                <td className="px-3 py-2">{r.warehouse_keeper_name || <span className="text-warning">Not assigned</span>}</td>
+                <td className="px-3 py-2">{r.warehouse_keeper_phone}</td>
+                <td className="px-3 py-2"><Badge tone={r.status === "Sent" ? "green" : r.status === "Cancelled" ? "red" : "gray"}>{r.status ?? "—"}</Badge></td>
+                <td className="whitespace-nowrap px-3 py-2 text-right">
+                  <Button variant="ghost" icon={<Eye className="h-3.5 w-3.5" />} onClick={() => window.open(r.url, "_blank", "noopener")}>View</Button>
+                  {r.status !== "Cancelled" && editable && <Button variant="ghost" busy={send.isPending && send.variables === r.loading_slip_item_id} icon={<Send className="h-3.5 w-3.5" />} onClick={() => send.mutate(r.loading_slip_item_id)}>Send</Button>}
+                  {r.status !== "Cancelled" && editable && (
+                    <Button variant="ghost" className="text-red-700" icon={<XCircle className="h-3.5 w-3.5" />}
+                      onClick={async () => (await ask(`Cancel loading slip ${r.loading_slip_file_name}? The warehouse keeper gets a cancellation message.`, "Cancel slip")) && cancel.mutate(r.loading_slip_item_id)}>Cancel</Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-400">No loading slips yet</td></tr>}
+          </tbody>
+        </table>
       </div>
     </Modal>
   );
 }
 
-function TermsModal({ order, onClose }: { order: Order; onClose: () => void }) {
-  const { update } = useStore();
-  const [po, setPo] = useState(order.po_number);
-  const [terms, setTerms] = useState(order.delivery_terms);
-  const [sub, setSub] = useState(order.sub_dealer);
-  return (
-    <Modal open onClose={onClose} title="Order Details & Terms" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={() => { update((d) => { const o = d.orders.find((x) => x.order_id === order.order_id)!; o.po_number = po; o.delivery_terms = terms; o.sub_dealer = sub; }); onClose(); }}>Save</Button></>}>
-      <div className="space-y-3">
-        <Field label="PO Number"><Input value={po} onChange={(e) => setPo(e.target.value)} /></Field>
-        <Field label="Delivery Terms"><Select value={terms} onChange={(e) => setTerms(e.target.value)} options={["Ex-Warehouse", "Delivered at Site", "Freight Extra"].map((x) => ({ value: x, label: x }))} /></Field>
-        <Field label="Sub Dealer"><Input value={sub} onChange={(e) => setSub(e.target.value)} /></Field>
-      </div>
-    </Modal>
-  );
-}
-
-function DeliverModal({ order, onClose, onDone }: { order: Order; onClose: () => void; onDone: () => void }) {
+function DeliverModal({ orderId, onClose, onDone }: { orderId: number; onClose: () => void; onDone: () => void }) {
   const [otp, setOtp] = useState("");
+  const verify = useAction(() => post(`orders/${orderId}/deliver`, { otp }), ["orders", "cash-bills", "dashboard"], { onSuccess: onDone });
   return (
-    <Modal open onClose={onClose} title="Confirm Delivery" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button variant="success" disabled={otp !== order.otp} onClick={onDone}>Mark as Delivered</Button></>}>
-      <p className="mb-3 text-xs text-gray-600">Enter the delivery OTP shared with the customer.</p>
-      <Field label="OTP"><Input value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="4-digit OTP" maxLength={4} /></Field>
-      <p className="mt-2 text-[11px] text-gray-400">Preview hint: OTP is {order.otp}</p>
+    <Modal open onClose={onClose} title="Mark as delivered" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button variant="success" busy={verify.isPending} disabled={!otp.trim()} onClick={() => verify.mutate(undefined)}>Verify OTP</Button></>}>
+      <Field label="Delivery OTP"><Input id="otp" inputMode="numeric" autoFocus value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter delivery OTP" onKeyDown={(e) => e.key === "Enter" && otp && verify.mutate(undefined)} /></Field>
+      <p className="mt-2 text-[11px] text-gray-500">The customer received this OTP on WhatsApp with their invoice.</p>
     </Modal>
   );
 }
 
-function CashBillModal({ order, onClose }: { order: Order; onClose: () => void }) {
-  const { db, update } = useStore();
-  const toast = useToast();
-  const c = db.customers.find((x) => x.customer_id === order.customer_id);
-  const collected = collectedFor(db, order.order_id);
+function AddVehicleModal({ transporterId, onClose }: { transporterId: number; onClose: () => void }) {
+  const [num, setNum] = useState("");
+  const vehicles = useGet<any[]>(`transporters/${transporterId}/vehicles`);
+  const norm = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const exists = !!num && (vehicles.data ?? []).some((v) => norm(v.vehicle_number) === norm(num));
+  const add = useAction(() => post(`transporters/${transporterId}/vehicles`, { vehicle_number: num }), ["transporters", "vehicle-details"], { onSuccess: onClose });
   return (
-    <Modal open onClose={onClose} title="CASH BILL" size="lg" footer={
-      <>
-        {!order.invoice_id && <Button onClick={() => { update((d) => { d.orders.find((x) => x.order_id === order.order_id)!.invoice_id = `CB-${order.order_id}`; }); toast("Cash bill generated"); onClose(); }}>Generate Cash Bill</Button>}
-      </>
-    }>
-      <div className="flex justify-between text-xs">
-        <div>
-          <div className="text-sm font-bold">Sambhavnath Agencies LLP</div>
-          <div className="text-gray-500">Cash Memo</div>
-        </div>
-        <div className="text-right">
-          <div>Bill No: <b>{order.invoice_id ?? "(draft)"}</b></div>
-          <div>Date: {fmtDate(order.order_date)}</div>
-          <div>Order: {order.order_number}</div>
-        </div>
-      </div>
-      <div className="my-3 rounded-xl bg-gray-50 p-3 text-xs">To: <b>{c?.name}</b> · {c?.phone}</div>
-      <div className="overflow-x-auto rounded-xl border"><ItemsTable items={order.items} /></div>
-      <div className="mt-3 text-right text-xs">Collected: <b>{inr(collected)}</b> · Balance: <b>{inr(order.total_amount - collected)}</b></div>
+    <Modal open onClose={onClose} title="Add New Vehicle Number" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button busy={add.isPending} disabled={!norm(num) || exists} onClick={() => add.mutate(undefined)}>Save</Button></>}>
+      <Field label="Vehicle Number"><Input id="new-veh" autoFocus value={num} onChange={(e) => setNum(e.target.value)} placeholder="GJ01AB1234" /></Field>
+      {exists && <p className="mt-2 text-xs text-red-700">This vehicle is already added for this transporter.</p>}
+      <p className="mt-2 text-[11px] text-gray-500">After saving, pick it in Vehicle Number and Save Details.</p>
     </Modal>
   );
 }
