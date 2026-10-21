@@ -1,88 +1,93 @@
-import { useState } from "react";
-import { ArrowRight, Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { useEffect, useState } from "react";
 import { post, queryClient } from "../api";
 import { LogoMark } from "../components/Logo";
-import { Button, ErrorBox, inputCls } from "../components/ui";
+import { Notice } from "../components/ui";
 
+// Sign-in: navy brand panel on the left (hidden on phones, where a slim navy
+// bar carries the logo instead), the form on the light working side.
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const [caps, setCaps] = useState(false);
+  const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  useEffect(() => { document.title = "Sign in · Sambhavnath OMS"; }, []);
+  // The most common reason a correct password fails.
+  const checkCaps = (e: React.KeyboardEvent<HTMLInputElement>) => setCaps(e.getModifierState?.("CapsLock") ?? false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email.trim() || !password) return setError("Enter your email and password.");
     setBusy(true);
-    setError(null);
+    setError("");
     try {
       await post("login", { email: email.trim(), password });
       await queryClient.invalidateQueries({ queryKey: ["session"] });
     } catch (err) {
-      setError(err as Error);
-    } finally {
+      setError((err as Error).message);
       setBusy(false);
     }
   };
 
   return (
-    <div className="flex min-h-full bg-white">
-      {/* Brand panel */}
-      <div className="relative hidden w-[44%] max-w-xl flex-col justify-between overflow-hidden bg-secondary p-10 text-white lg:flex">
-        <div aria-hidden className="pointer-events-none absolute -right-24 -top-24 h-80 w-80 rounded-full bg-primary/20 blur-3xl" />
-        <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-white/5 blur-3xl" />
-        <div />
-        <div className="relative">
-          <LogoMark className="mb-8 h-28 w-40 text-white/90" />
-          <div className="text-sm font-medium text-white/70">Sambhavnath Agencies LLP</div>
-          <h1 className="mt-1 text-2xl font-semibold leading-snug">Order Management System</h1>
-          <p className="mt-2 max-w-sm text-sm leading-relaxed text-white/60">Enquiries, orders, loading slips, invoices and deliveries in one place.</p>
+    <main className="grid min-h-dvh bg-canvas lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]">
+      <aside className="relative hidden overflow-hidden bg-navy text-white lg:flex lg:flex-col lg:justify-between lg:p-12">
+        <svg aria-hidden className="pointer-events-none absolute -bottom-40 -right-40 h-[38rem] w-[38rem] text-white/[0.05]" viewBox="0 0 200 200" fill="none" stroke="currentColor" strokeWidth="0.6">
+          <rect x="40" y="40" width="120" height="120" /><rect x="40" y="40" width="120" height="120" transform="rotate(45 100 100)" />
+          <rect x="60" y="60" width="80" height="80" /><rect x="60" y="60" width="80" height="80" transform="rotate(45 100 100)" />
+        </svg>
+        <div className="relative flex items-center gap-3">
+          <LogoMark className="h-10 w-14" />
+          <div className="leading-tight">
+            <div className="text-[15px] font-bold tracking-wide">SAMBHAVNATH</div>
+            <div className="text-[12px] text-brand-light">Agencies LLP</div>
+          </div>
         </div>
-        <div className="relative text-[11px] text-white/40">© {new Date().getFullYear()} Sri Sambavanath Agencies LLP</div>
-      </div>
+        <div className="relative max-w-md">
+          <h2 className="text-[40px] font-semibold leading-[1.08] tracking-tight">Order Management</h2>
+          <p className="mt-4 text-[15px] leading-relaxed text-white/75">Enquiries, orders, loading slips, invoices, cash bills and deliveries for Sambhavnath, in one place.</p>
+        </div>
+        <div className="relative text-[12px] text-white/60">Private system for Sambhavnath staff. Activity is recorded.</div>
+      </aside>
 
-      {/* Sign-in form */}
-      <div className="flex flex-1 items-center justify-center p-6 sm:p-10">
-        <form onSubmit={submit} className="w-full max-w-sm" noValidate={false}>
-          <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <div className="grid h-12 w-12 place-items-center rounded-xl bg-secondary text-white"><LogoMark className="w-9" /></div>
-            <div className="leading-tight">
-              <div className="text-sm font-semibold text-secondary">Sambhavnath Agencies LLP</div>
-              <div className="text-xs text-gray-500">Order Management System</div>
-            </div>
+      <section className="flex min-h-dvh flex-col">
+        <div className="flex items-center gap-2.5 bg-navy px-5 py-3.5 text-white lg:hidden">
+          <LogoMark className="h-8 w-11" />
+          <div className="leading-tight">
+            <div className="text-[14px] font-bold tracking-wide">SAMBHAVNATH</div>
+            <div className="text-[11px] text-brand-light">Order Management</div>
           </div>
-          <h2 className="text-xl font-semibold text-secondary">Sign in</h2>
-          <p className="mt-1 text-xs text-gray-500">Use your work email and password.</p>
-
-          <div className="mt-6 space-y-4">
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-gray-700">Email</span>
-              <span className="relative block">
-                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input id="login-email" type="email" autoComplete="username" autoFocus required value={email} onChange={(e) => setEmail(e.target.value)}
-                  placeholder="name@company.com" className={`${inputCls} py-2.5 pl-9 text-sm`} />
-              </span>
-            </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-medium text-gray-700">Password</span>
-              <span className="relative block">
-                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                <input id="login-password" type={show ? "text" : "password"} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)}
-                  className={`${inputCls} py-2.5 pl-9 pr-10 text-sm`} />
-                <button type="button" onClick={() => setShow(!show)} aria-label={show ? "Hide password" : "Show password"}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-gray-400 hover:bg-black/5 hover:text-secondary">
-                  {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </span>
-            </label>
-            {error && <ErrorBox error={error} />}
-            <Button type="submit" className="w-full py-2.5 text-sm" busy={busy} disabled={!email || !password}>
-              Sign in {!busy && <ArrowRight className="h-4 w-4" />}
-            </Button>
+        </div>
+        <div className="flex flex-1 items-center justify-center px-5 py-10">
+          <div className="w-full max-w-[400px]">
+            <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-ink">Sign in</h1>
+            <p className="mt-1.5 text-[14px] text-muted">Use your work email.</p>
+            <form onSubmit={submit} className="mt-7 space-y-4" noValidate>
+              {error && <Notice tone="danger">{error}</Notice>}
+              <div>
+                <label className="label" htmlFor="login-email">Email</label>
+                <input id="login-email" type="email" required autoComplete="username" autoFocus inputMode="email" autoCapitalize="none" spellCheck={false}
+                  value={email} onChange={(e) => setEmail(e.target.value)} className="input h-11 text-[15px]" />
+              </div>
+              <div>
+                <label className="label" htmlFor="login-password">Password</label>
+                <div className="relative">
+                  <input id="login-password" type={show ? "text" : "password"} required autoComplete="current-password" value={password}
+                    onChange={(e) => setPassword(e.target.value)} onKeyUp={checkCaps} onKeyDown={checkCaps}
+                    className="input h-11 pr-16 text-[15px]" aria-describedby={caps ? "login-caps" : undefined} />
+                  <button type="button" onClick={() => setShow((s) => !s)} aria-pressed={show} aria-controls="login-password"
+                    className="absolute inset-y-0 right-1.5 my-1.5 rounded-md px-2.5 text-[12px] font-medium text-muted hover:bg-hover hover:text-ink">{show ? "Hide" : "Show"}</button>
+                </div>
+                {caps && <p id="login-caps" className="mt-1.5 text-[12px] text-warning">Caps Lock is on.</p>}
+              </div>
+              <button type="submit" disabled={busy} className="btn-primary h-11 w-full text-[15px]">{busy ? "Signing in..." : "Sign in"}</button>
+              <p className="text-center text-[13px] text-faint">Forgot your password or need an account? Ask your administrator.</p>
+            </form>
           </div>
-          <p className="mt-8 text-center text-[11px] text-gray-400">Trouble signing in? Ask your administrator to reset your access.</p>
-        </form>
-      </div>
-    </div>
+        </div>
+        <p className="px-5 pb-6 text-center text-[12px] text-faint">© {new Date().getFullYear()} Sri Sambhavnath Agencies LLP</p>
+      </section>
+    </main>
   );
 }
