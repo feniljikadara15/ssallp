@@ -175,7 +175,7 @@ export function demoSeedSql() {
     const rows = t[table] ?? [];
     if (!rows.length) continue;
     const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
-    out.push(`INSERT INTO ${table} (${cols.join(", ")}) VALUES\n${rows.map((r) => `(${cols.map((c) => lit(r[c])).join(", ")})`).join(",\n")};`);
+    out.push(`INSERT INTO ${table} (${cols.join(", ")}) VALUES\n${rows.map((r) => `(${cols.map((c) => lit(r[c])).join(", ")})`).join(",\n")}\nON CONFLICT DO NOTHING;`);
     out.push(`SELECT setval(pg_get_serial_sequence('${table}', '${pk[table]}'), (SELECT MAX(${pk[table]}) FROM ${table}));`);
   }
   out.push(`SELECT setval('order_number_seq', 1000 + (SELECT MAX(order_id) FROM orders));`);

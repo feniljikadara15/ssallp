@@ -17,16 +17,40 @@ async function connectPg(): Promise<Driver> {
   pg.types.setTypeParser(1082, (v) => v);
   const needsSsl = !/localhost|127\.0\.0\.1/.test(config.databaseUrl) && !/sslmode=disable/.test(config.databaseUrl);
   // An sslmode in the URL would override the ssl option below, so drop it.
-  const url = new URL(config.databaseUrl);
-  url.searchParams.delete("sslmode");
+  let connectionString = config.databaseUrl;
+  try {
+    const url = new URL(config.databaseUrl);
+    url.searchParams.delete("sslmode");
+    connectionString = url.toString();
+  } catch {
+    // Not parseable as a URL (e.g. a password with unescaped symbols); pg reads it as is.
+  }
   const pool = new pg.Pool({
-    connectionString: url.toString(),
+    connectionString,
     ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
     max: 3,
+    // Fail in seconds with a clear message instead of leaving pages loading.
+    connectionTimeoutMillis: 10_000,
+    query_timeout: 45_000,
   });
+  pool.on("error", (e) => console.error("Idle database connection error:", e.message));
   const driver: Driver = { query: async (text, params) => (await pool.query(text, params as any[])).rows };
-  await setUpEmptyDatabase(driver);
+  try {
+    await setUpEmptyDatabase(driver);
+  } catch (e: any) {
+    throw new Error(explainConnectionError(e));
+  }
   return driver;
+}
+
+function explainConnectionError(e: any) {
+  const msg = String(e?.message ?? e);
+  const host = (() => { try { return new URL(config.databaseUrl).hostname; } catch { return ""; } })();
+  if (/^db\.[a-z0-9]+\.supabase\.co$/.test(host))
+    return `Can't connect to the database (${msg}). This is Supabase's Direct connection address, which Vercel can't reach. In Supabase click Connect, choose "Transaction pooler" and use that URI (port 6543) as DATABASE_URL.`;
+  if (/password authentication failed/i.test(msg)) return `Database password is wrong in DATABASE_URL (${msg}).`;
+  if (/timeout|ETIMEDOUT|ENOTFOUND|ECONNREFUSED|ENETUNREACH/i.test(msg)) return `Can't reach the database at ${host || "DATABASE_URL"} (${msg}). Check DATABASE_URL; for Supabase use the Transaction pooler URI.`;
+  return `Database error: ${msg}`;
 }
 
 // A brand-new database (for example a fresh Supabase project) gets the tables
@@ -34,7 +58,7 @@ async function connectPg(): Promise<Driver> {
 // is left alone.
 async function setUpEmptyDatabase(db: Driver) {
   const [{ ready }] = await db.query("SELECT to_regclass('public.orders') IS NOT NULL AS ready");
-  if (ready) return;
+  if (ready) return seedIfRequested(db);
   const { SCHEMA_SQL } = await import("./schemaSql.js");
   const { STATES } = await import("./demoSeed.js");
   await db.query(SCHEMA_SQL);
@@ -50,6 +74,20 @@ async function setUpEmptyDatabase(db: Driver) {
     [STATES.map((s) => s[0]), STATES.map((s) => s[1])],
   );
   console.log("Created the OMS tables in an empty database");
+  await seedIfRequested(db);
+}
+
+// SEED_DEMO_DATA=true fills an EMPTY database (no customers, orders or
+// products) with the demo sample data. It never touches a database with data.
+async function seedIfRequested(db: Driver) {
+  if (!/^(1|true|yes)$/i.test(process.env.SEED_DEMO_DATA ?? "")) return;
+  const [{ empty }] = await db.query(
+    "SELECT NOT EXISTS (SELECT 1 FROM customers) AND NOT EXISTS (SELECT 1 FROM orders) AND NOT EXISTS (SELECT 1 FROM products) AS empty",
+  );
+  if (!empty) return;
+  const { demoSeedSql } = await import("./demoSeed.js");
+  await db.query(demoSeedSql());
+  console.log("Loaded demo sample data");
 }
 
 // Demo mode: an embedded Postgres (PGlite) seeded with sample data. It lives in
@@ -65,8 +103,10 @@ async function connectDemo(): Promise<Driver> {
 }
 
 function getDriver() {
-  if (!driver) driver = isDemo() ? connectDemo() : connectPg();
-  driver.catch(() => (driver = null));
+  if (!driver) {
+    driver = isDemo() ? connectDemo() : connectPg();
+    driver.catch(() => (driver = null));
+  }
   return driver;
 }
 

@@ -23,7 +23,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
 }
 
 export const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 15_000, retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 2, refetchOnWindowFocus: true } },
+  defaultOptions: { queries: { staleTime: 15_000, retry: (n, e) => !(e instanceof ApiError && e.status < 500) && n < 1, refetchOnWindowFocus: true } },
 });
 
 // GET helper: the query key is the path, so invalidating ["orders"] also
