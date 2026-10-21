@@ -18,6 +18,6 @@ export function useUrlState<K extends string>(defaults: Record<K, string>) {
       return next;
     }, { replace: true });
   }, [setParams]); // eslint-disable-line react-hooks/exhaustive-deps
-  const clear = useCallback((keys: K[]) => set(Object.fromEntries(keys.map((k) => [k, ""])) as Partial<Record<K, string>>), [set]);
+  const clear = useCallback((keys: readonly K[]) => set(Object.fromEntries(keys.map((k) => [k, ""])) as Partial<Record<K, string>>), [set]);
   return [state, set, clear] as const;
 }

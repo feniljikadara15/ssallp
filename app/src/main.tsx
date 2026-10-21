@@ -12,6 +12,9 @@ import Login from "./pages/Login";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Enquiries = lazy(() => import("./pages/Enquiries"));
 const Orders = lazy(() => import("./pages/Orders"));
+const OrderDetail = lazy(() => import("./pages/OrderDetail"));
+const EnquiryDetail = lazy(() => import("./pages/EnquiryDetail"));
+const CashBillDetail = lazy(() => import("./pages/CashBillDetail"));
 const CashBills = lazy(() => import("./pages/CashBills"));
 const Warehouses = lazy(() => import("./pages/Warehouses"));
 const Transporters = lazy(() => import("./pages/Transporters"));
@@ -58,8 +61,11 @@ function App() {
         <Route element={<Layout session={session.data!} />}>
           <Route index element={<Page><Dashboard /></Page>} />
           <Route path="enquiries" element={<Page><Enquiries /></Page>} />
+          <Route path="enquiries/:id" element={<Page><EnquiryDetail /></Page>} />
           <Route path="orders" element={<Page><Orders /></Page>} />
+          <Route path="orders/:id" element={<Page><OrderDetail /></Page>} />
           <Route path="cash-bills" element={<Page><CashBills /></Page>} />
+          <Route path="cash-bills/:id" element={<Page><CashBillDetail /></Page>} />
           <Route path="warehouses" element={<Page><Warehouses /></Page>} />
           <Route path="transporters" element={<Page><Transporters /></Page>} />
           <Route path="warehouse-keepers" element={<Page><WarehouseKeepers /></Page>} />

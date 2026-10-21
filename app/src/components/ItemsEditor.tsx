@@ -42,58 +42,57 @@ export function ItemsTable({ items, idKey, onSave, saving }: {
     const current = edits[id] ?? { quantity: String(it.quantity), unit_price: String(it.unit_price) };
     setEdits({ ...edits, [id]: { ...current, [f]: v } });
   };
-  const cell = "w-24 rounded-md border border-black/15 bg-white px-2 py-1 text-right text-xs outline-none transition hover:border-black/30 focus:border-primary focus:ring-2 focus:ring-primary/20";
+  const cell = "input input-sm w-28 text-right tabular-nums";
+  const th = "c whitespace-nowrap px-3 py-2.5 text-[12px] font-medium text-faint first:pl-4";
 
-  const th = "px-4 py-2.5 font-medium";
   return (
     <div>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-black/[0.06] bg-gray-50/70 text-left text-2xs uppercase tracking-wide text-gray-500">
-              <th className={th}>Product</th>
+        <table className="tbl w-full text-[13px]">
+          <thead className="bg-surface-alt">
+            <tr className="border-b border-line">
+              <th className={`${th} text-left`}>Product</th>
+              <th className={`${th} text-left`}>Category</th>
               <th className={`${th} text-right`}>Quantity</th>
-              <th className={`${th} text-right`}>Unit price</th>
-              <th className={`${th} text-right`}>Amount</th>
+              <th className={`${th} text-right`}>Unit price (₹)</th>
+              <th className={`${th} text-right`}>Amount (₹)</th>
             </tr>
           </thead>
-          <tbody className="tabular-nums">
+          <tbody className="divide-y divide-line tabular-nums">
             {items.map((it, i) => (
-              <tr key={String(it[idKey ?? ""] ?? i)} className="border-b border-black/[0.04] last:border-0">
-                <td className="px-4 py-2.5">
-                  <div className="font-medium text-secondary">{[it.brand, it.grade].filter(Boolean).join(" ")}</div>
-                  <div className="text-2xs text-gray-500">{it.category}</div>
-                </td>
-                <td className="whitespace-nowrap px-4 py-2.5 text-right">
+              <tr key={String(it[idKey ?? ""] ?? i)} className="transition-colors hover:bg-surface-alt">
+                <td className="c h-10 px-3 py-1.5 pl-4 font-medium text-ink">{[it.brand, it.grade].filter(Boolean).join(" ")}</td>
+                <td className="c px-3 text-muted">{it.category}</td>
+                <td className="c whitespace-nowrap px-3 text-right">
                   {editable
-                    ? <span className="inline-flex items-center gap-1.5"><input aria-label={`Quantity of ${it.brand} ${it.grade}`} type="number" min={0} className={cell} value={edits[String(it[idKey!])]?.quantity ?? String(it.quantity)} onChange={(e) => set(it, "quantity", e.target.value)} /><span className="w-10 text-left text-gray-500">{it.unit}</span></span>
-                    : <>{Number(it.quantity)} <span className="text-gray-500">{it.unit}</span></>}
+                    ? <span className="inline-flex items-center gap-2"><input aria-label={`Quantity of ${it.brand} ${it.grade}`} type="number" min={0} className={cell} value={edits[String(it[idKey!])]?.quantity ?? String(it.quantity)} onChange={(e) => set(it, "quantity", e.target.value)} /><span className="w-12 text-left text-faint">{it.unit}</span></span>
+                    : <>{Number(it.quantity).toLocaleString("en-IN")} <span className="text-faint">{it.unit}</span></>}
                 </td>
-                <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                <td className="c whitespace-nowrap px-3 text-right">
                   {editable
                     ? <input aria-label={`Unit price of ${it.brand} ${it.grade}`} type="number" min={0} className={cell} value={edits[String(it[idKey!])]?.unit_price ?? String(it.unit_price)} onChange={(e) => set(it, "unit_price", e.target.value)} />
                     : inr(it.unit_price)}
                 </td>
-                <td className="whitespace-nowrap px-4 py-2.5 text-right font-medium text-secondary">{inr(editable ? val(it, "quantity") * val(it, "unit_price") : it.total_price ?? it.quantity * it.unit_price)}</td>
+                <td className="c whitespace-nowrap px-3 pr-4 text-right font-medium text-ink">{inr(editable ? val(it, "quantity") * val(it, "unit_price") : it.total_price ?? it.quantity * it.unit_price)}</td>
               </tr>
             ))}
-            {!items.length && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400">No items</td></tr>}
+            {!items.length && <tr><td colSpan={5} className="px-4 py-10 text-center text-[13px] text-faint">No items</td></tr>}
           </tbody>
           {items.length > 0 && (
-            <tfoot>
-              <tr className="border-t border-black/[0.06] bg-gray-50/70">
-                <td colSpan={3} className="px-4 py-3 text-right text-xs font-medium text-gray-600">Total</td>
-                <td className="tabular whitespace-nowrap px-4 py-3 text-right text-sm font-semibold text-secondary">{inr(total)}</td>
+            <tfoot className="bg-surface-alt">
+              <tr className="border-t border-line-strong font-medium">
+                <td className="c h-10 px-3 pl-4">Total</td><td className="c" /><td className="c" /><td className="c" />
+                <td className="c whitespace-nowrap px-3 pr-4 text-right tabular-nums">{inr(total)}</td>
               </tr>
             </tfoot>
           )}
         </table>
       </div>
       {editable && changed.length > 0 && (
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-black/[0.06] bg-amber-50/60 px-4 py-2.5">
-          <span className="mr-auto text-xs text-amber-800">{changed.length} item{changed.length > 1 ? "s" : ""} changed{invalid ? " · quantity must be more than zero" : ""}</span>
-          <Button variant="outline" icon={<Undo2 />} onClick={() => setEdits({})}>Discard</Button>
-          <Button busy={saving} disabled={invalid} icon={<Save />}
+        <div className="flex flex-wrap items-center gap-2 border-t border-warning-line bg-warning-soft px-4 py-2.5">
+          <span className="min-w-0 flex-1 text-[13px] text-warning">{changed.length} item{changed.length > 1 ? "s" : ""} changed, not saved yet{invalid ? ". A quantity must be more than zero." : "."}</span>
+          <Button size="sm" variant="ghost" icon={<Undo2 />} onClick={() => setEdits({})}>Discard</Button>
+          <Button size="sm" variant="primary" busy={saving} disabled={invalid} icon={<Save />}
             onClick={() => onSave!(changed.map((it) => ({ [idKey!]: it[idKey!], quantity: val(it, "quantity"), unit_price: val(it, "unit_price") })))}>
             Save items
           </Button>

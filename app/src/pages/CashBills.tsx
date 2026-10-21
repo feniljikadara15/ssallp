@@ -1,161 +1,98 @@
-import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { Banknote, Boxes, Download, ReceiptText, Wallet } from "lucide-react";
-import { api, post, useAction, useGet } from "../api";
-import { exportRows, fmtDate, includes, inRange, inr, stamp, today } from "../format";
-import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Section, Tabs, toast, DateInput } from "../components/ui";
-import ListItem, { revealDetail } from "../components/ListItem";
-import { ItemsTable } from "../components/ItemsEditor";
+import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Download, ExternalLink, Wallet } from "lucide-react";
+import { api, useGet } from "../api";
+import { exportRows, inRange, num, stamp } from "../format";
+import { useUrlState } from "../lib/urlState";
+import { DataTable } from "../components/DataTable";
+import { Button, DateRange, ErrorBox, FilterBar, PageHeader, Select, StatStrip, Tabs, Toolbar, toast } from "../components/ui";
 
-type Tab = "pending" | "collected";
-const last4 = (v: unknown) => String(v ?? "").replace(/.*(\d{4})$/, "$1");
+// Orders billed as cash, and the money collected against them. A bill moves
+// to Collected once its payments add up to the bill total.
+const FILTERS = ["customer", "warehouse", "age", "from", "to"] as const;
+const AGE = [{ value: "7", label: "Older than 7 days" }, { value: "30", label: "Older than 30 days" }, { value: "60", label: "Older than 60 days" }];
+const daysSince = (d: string) => Math.floor((Date.now() - new Date(d).getTime()) / 864e5);
 
 export default function CashBills() {
-  const [params] = useSearchParams();
-  const [tab, setTab] = useState<Tab>("pending");
-  const pending = useGet<any[]>("cash-bills?tab=pending");
+  const navigate = useNavigate();
+  const pending = useGet<any[]>("cash-bills?tab=pending", { refetchInterval: 60_000 });
   const collected = useGet<any[]>("cash-bills?tab=collected");
-  const [party, setParty] = useState("");
-  const [num, setNum] = useState("");
-  const [ls, setLs] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [sel, setSel] = useState<number | null>(null);
+  const customers = useGet<any[]>("customers");
+  const warehouses = useGet<any[]>("warehouses");
+  const [f, set, clear] = useUrlState({ tab: "pending", customer: "", warehouse: "", age: "", from: "", to: "" });
+  const isPending = f.tab === "pending";
+  const source = isPending ? pending : collected;
+
+  const rows = useMemo(() => (source.data ?? []).filter((o) =>
+    (!f.customer || String(o.customer_id) === f.customer) &&
+    (!f.warehouse || String(o.warehouse_id) === f.warehouse) &&
+    (!f.age || daysSince(o.order_date) > Number(f.age)) &&
+    inRange(o.order_date, f.from, f.to)).map((o) => ({ ...o, due: Number(o.total_amount) - Number(o.total_collected) })), [source.data, f]);
+  const filtered = FILTERS.some((k) => f[k]);
+  const billed = rows.reduce((s, o) => s + Number(o.total_amount ?? 0), 0);
+  const got = rows.reduce((s, o) => s + Number(o.total_collected ?? 0), 0);
+  const oldest = rows.length ? Math.max(...rows.map((o) => daysSince(o.order_date))) : 0;
+
+  // The sheet the accounts team used in Retool: one row per item and payment.
   const [exporting, setExporting] = useState(false);
-
-  // Arriving from an order's "View Cash Bill" button
-  useEffect(() => {
-    const id = Number(params.get("order"));
-    if (!id || !pending.data || !collected.data) return;
-    setSel(id);
-    setTab(collected.data.some((o) => o.order_id === id) ? "collected" : "pending");
-  }, [params, pending.data, collected.data]);
-
-  const source = tab === "pending" ? pending : collected;
-  const list = useMemo(() => (source.data ?? []).filter((o) =>
-    includes(o.customer_name, party) &&
-    (!num.trim() || String(o.order_id).includes(num.trim()) || last4(o.order_number).includes(num.trim())) &&
-    (!ls.trim() || includes(o.loading_slip_file_name, ls) || last4(o.loading_slip_number).includes(ls.trim())) &&
-    inRange(o.order_date, from, to)), [source.data, party, num, ls, from, to]);
-
-  const exportXlsx = async () => {
+  const detailExport = async () => {
     setExporting(true);
     try {
-      const rows = await api(`cash-bills-export?tab=${tab}&start=${from}&end=${to}`);
-      const name = tab === "pending" ? "Cash Bills Pending" : "Cash Bills Collected";
-      await exportRows(rows, `${name} - ${stamp()}`, "xlsx", name);
-    } catch (e) { toast((e as Error).message, "error"); }
+      const data = await api(`cash-bills-export?tab=${f.tab}&start=${f.from}&end=${f.to}`);
+      const name = isPending ? "Cash Bills Pending" : "Cash Bills Collected";
+      await exportRows(data, `${name} - ${stamp()}`, "xlsx", name);
+    } catch (e) { toast("Export failed", "error", (e as Error).message); }
     setExporting(false);
   };
 
   return (
-    <div>
-      <PageHeader title="Cash Bills" description="Orders billed as cash and the payments collected against them">
-        <Button variant="outline" busy={exporting} icon={<Download />} onClick={exportXlsx}>Export</Button>
-      </PageHeader>
-      <div className="grid items-start gap-5 lg:grid-cols-[380px_minmax(0,1fr)] [&>*]:min-w-0">
-        <Card className="flex flex-col p-3 lg:sticky lg:top-0 lg:max-h-[calc(100vh-120px)]">
-          <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={[
-            { value: "pending", label: "Pending", count: pending.data?.length },
-            { value: "collected", label: "Collected", count: collected.data?.length },
-          ]} />
-          <div className="mt-3 shrink-0 space-y-2">
-            <SearchInput value={party} onChange={setParty} placeholder="Search customer" />
-            <div className="grid grid-cols-2 gap-2">
-              <SearchInput value={num} onChange={setNum} placeholder="Order no." />
-              <SearchInput value={ls} onChange={setLs} placeholder="Loading slip no." />
-              <DateInput aria-label="From date" placeholder="From" value={from} onChange={(e) => setFrom(e.target.value)} />
-              <DateInput aria-label="To date" placeholder="To" value={to} onChange={(e) => setTo(e.target.value)} />
-            </div>
-          </div>
-          <div className="mt-3 flex shrink-0 items-center justify-between px-1 text-2xs text-gray-500">
-            <span>{list.length} bill{list.length === 1 ? "" : "s"}{tab === "pending" && list.length > 0 && <> · {inr(list.reduce((a, o) => a + Number(o.total_amount) - Number(o.total_collected), 0))} due</>}</span>
-            {(party || num || ls || from || to) && <button className="font-medium text-primary hover:underline" onClick={() => { setParty(""); setNum(""); setLs(""); setFrom(""); setTo(""); }}>Clear filters</button>}
-          </div>
-          <div className="-mx-1 mt-1 min-h-[200px] flex-1 space-y-0.5 overflow-y-auto px-1">
-            {source.isLoading && <Loading variant="inline" />}
-            {source.error && <ErrorBox error={source.error} />}
-            {list.map((o) => (
-              <ListItem key={o.order_id} active={sel === o.order_id} onClick={() => { setSel(o.order_id); revealDetail(); }}
-                title={o.customer_name ?? "—"}
-                subtitle={[`#${o.order_id}`, o.loading_slip_file_name].filter(Boolean).join(" · ")}
-                tag={tab === "pending" ? <Badge tone="red">Due {inr(o.total_amount - o.total_collected)}</Badge> : <Badge tone="green">Collected</Badge>}
-                right={fmtDate(o.order_date)}
-                rightSub={inr(o.total_amount)} />
-            ))}
-            {source.data && !list.length && <div className="py-10 text-center text-xs text-gray-400">{tab === "pending" ? "No cash pending" : "No collected bills"}</div>}
-          </div>
-        </Card>
-        <div id="detail-panel" className="min-w-0 scroll-mt-4">{sel ? <CashBillDetail id={sel} /> : <EmptyState icon={<Banknote className="h-5 w-5" />} text="Pick a cash bill to see what's been collected and record a payment." />}</div>
-      </div>
-    </div>
-  );
-}
-
-function CashBillDetail({ id }: { id: number }) {
-  const { data: o, error, isLoading } = useGet<any>(`cash-bills/${id}`);
-  const [collect, setCollect] = useState(false);
-  if (isLoading) return <Card className="p-5"><Loading variant="inline" /></Card>;
-  if (error || !o) return <Card className="p-5"><ErrorBox error={error} /></Card>;
-  const itemsTotal = o.items.reduce((a: number, x: any) => a + Number(x.total_price ?? Number(x.quantity) * Number(x.unit_price)), 0);
-  const paid = o.payments.reduce((a: number, x: any) => a + Number(x.amount), 0);
-  const pendingAmt = itemsTotal - paid;
-  const total = Number(o.total_amount ?? itemsTotal);
-  const pct = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
-  return (
-    <div className="min-w-0 space-y-4">
-      <Card className="p-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-2xs font-medium text-gray-500">
-              <span>Order #{o.order_id}</span>{o.order_number && <><span className="text-gray-300">/</span><span>{o.order_number}</span></>}
-              {o.loading_slip_file_name && <><span className="text-gray-300">/</span><span>{o.loading_slip_file_name}</span></>}
-            </div>
-            <h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-secondary">{o.customer_name}</h2>
-            <div className="mt-2"><Badge dot tone={pendingAmt > 0 ? "red" : "green"}>{pendingAmt > 0 ? "Payment due" : "Fully collected"}</Badge></div>
-          </div>
-          {pendingAmt > 0 && <Button icon={<Wallet />} onClick={() => setCollect(true)}>Record payment</Button>}
-        </div>
-        <div className="mt-5 grid gap-4 sm:grid-cols-3">
-          <KV label="Bill total" value={<span className="tabular text-base font-semibold">{inr(total)}</span>} />
-          <KV label="Collected" value={<span className="tabular text-base font-semibold text-emerald-700">{inr(paid)}</span>} />
-          <KV label="Due" value={<span className={`tabular text-base font-semibold ${pendingAmt > 0 ? "text-red-700" : "text-secondary"}`}>{inr(pendingAmt)}</span>} />
-        </div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Collected">
-          <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
-        </div>
-        <div className="mt-1 text-2xs text-gray-500">{pct}% collected · billed {fmtDate(o.order_date)}</div>
-      </Card>
-      <Section title="Payments" icon={<ReceiptText />} description={o.payments.length ? `${o.payments.length} payment${o.payments.length === 1 ? "" : "s"} recorded` : undefined} bodyClassName="p-0">
-        <DataTable rows={o.payments} rowKey={(r: any) => r.cash_collected_id} empty="No payments collected yet" columns={[
-          { key: "collection_date", label: "Date", render: (r: any) => fmtDate(r.collection_date) },
-          { key: "receipt_number", label: "Receipt no." },
-          { key: "payment_mode", label: "Mode", render: (r: any) => r.payment_mode ?? "Cash" },
-          { key: "amount", label: "Amount", align: "right", render: (r: any) => <span className="font-medium">{inr(r.amount)}</span> },
+    <div className="page">
+      <PageHeader title="Cash bills" subtitle="Orders billed as cash. Record each payment as it comes in; a bill moves to Collected when it is fully paid." />
+      <Toolbar>
+        <Tabs value={f.tab} onChange={(v) => set({ tab: v, age: "" })} tabs={[
+          { value: "pending", label: "To collect", count: pending.data?.length },
+          { value: "collected", label: "Collected", count: collected.data?.length },
         ]} />
-      </Section>
-      <Section title="Items" icon={<Boxes />} bodyClassName="p-0">
-        <ItemsTable items={o.items} />
-      </Section>
-      {collect && <CollectModal orderId={o.order_id} pending={pendingAmt} onClose={() => setCollect(false)} />}
-    </div>
-  );
-}
+      </Toolbar>
+      <FilterBar active={filtered} onClear={() => clear(FILTERS)}>
+        <Select className="w-full sm:w-60" value={f.customer} onChange={(e) => set({ customer: e.target.value })} placeholder="All customers"
+          options={(customers.data ?? []).map((c) => ({ value: String(c.customer_id), label: c.name }))} />
+        <Select className="w-full sm:w-52" value={f.warehouse} onChange={(e) => set({ warehouse: e.target.value })} placeholder="All warehouses"
+          options={(warehouses.data ?? []).map((w) => ({ value: String(w.warehouse_id), label: w.name }))} />
+        {isPending && <Select className="w-full sm:w-48" value={f.age} onChange={(e) => set({ age: e.target.value })} placeholder="Any age" options={AGE} />}
+        <DateRange label="Billed" from={f.from} to={f.to} onFrom={(v) => set({ from: v })} onTo={(v) => set({ to: v })} className="w-full sm:w-auto" />
+      </FilterBar>
 
-function CollectModal({ orderId, pending, onClose }: { orderId: number; pending: number; onClose: () => void }) {
-  const [amount, setAmount] = useState(String(pending));
-  const [receipt, setReceipt] = useState("");
-  const [date, setDate] = useState(today());
-  const save = useAction(() => post(`cash-bills/${orderId}/payments`, { amount: Number(amount), receipt_number: receipt, collection_date: date }), ["cash-bills"], { onSuccess: onClose });
-  const n = Number(amount);
-  return (
-    <Modal open onClose={onClose} title="Record payment" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button busy={save.isPending} disabled={!(n > 0) || n > pending || !receipt.trim()} onClick={() => save.mutate(undefined)}>Save</Button></>}>
-      <div className="space-y-3">
-        <Field label={`Amount collected (due ${inr(pending)})`}><Input id="cc-amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
-        {n > pending && <p className="text-xs text-red-700">That's more than the pending amount.</p>}
-        <Field label="Receipt number"><Input id="cc-receipt" value={receipt} onChange={(e) => setReceipt(e.target.value)} placeholder="Enter receipt number" /></Field>
-        <Field label="Collection date"><DateInput id="cc-date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-      </div>
-    </Modal>
+      {source.error && <ErrorBox error={source.error} />}
+      <StatStrip items={isPending ? [
+        { label: "Bills to collect", value: num(rows.length) },
+        { label: "Due", value: `₹${num(billed - got)}`, tone: billed - got > 0 ? "danger" : undefined, hint: `of ₹${num(billed)} billed` },
+        { label: "Collected so far", value: `₹${num(got)}`, hint: "Part payments on these bills" },
+        { label: "Oldest bill", value: rows.length ? `${num(oldest)} days` : "-", tone: oldest > 30 ? "warning" : undefined },
+      ] : [
+        { label: "Collected bills", value: num(rows.length) },
+        { label: "Collected", value: `₹${num(got)}` },
+      ]} />
+
+      <DataTable title={isPending ? "Cash to collect" : "Collected cash bills"} filename={`${isPending ? "Cash to collect" : "Collected cash bills"} ${stamp()}`} rowKey="order_id" rows={rows} loading={source.isLoading}
+        filtersActive={filtered} onClearFilters={() => clear(FILTERS)}
+        rowLink={(r) => `/cash-bills/${r.order_id}`}
+        empty={{ title: isPending ? "Nothing to collect" : "No collected bills", hint: isPending ? "Every cash bill is fully paid." : undefined }}
+        toolbar={<Button size="sm" busy={exporting} icon={<Download />} onClick={detailExport} title="One row per item and payment, in the Retool layout">Detailed sheet</Button>}
+        rowActions={(r) => [
+          ...(isPending ? [{ kind: "edit" as const, label: `Record a payment for order #${r.order_id}`, icon: <Wallet />, onClick: () => navigate(`/cash-bills/${r.order_id}?collect=1`) }] : []),
+          { kind: "open", label: `Open the cash bill for order #${r.order_id}`, icon: <ExternalLink />, href: `/cash-bills/${r.order_id}` },
+        ]}
+        cols={[
+          { key: "order_id", label: "Order #", kind: "int", align: "left", sub: (r) => r.order_number },
+          { key: "customer_name", label: "Customer", sub: (r) => r.site_name },
+          { key: "order_date", label: "Billed", kind: "date", sub: (r) => isPending ? `${num(daysSince(r.order_date))} days ago` : undefined },
+          { key: "loading_slip_file_name", label: "Loading slip", sub: (r) => r.warehouse_name },
+          { key: "last_collected", label: "Last payment", kind: "date", sub: (r) => r.payments ? `${num(r.payments)} payment${r.payments === 1 ? "" : "s"}` : undefined },
+          { key: "total_amount", label: "Bill (₹)", kind: "money", total: true },
+          { key: "total_collected", label: "Collected (₹)", kind: "money", total: true },
+          ...(isPending ? [{ key: "due", label: "Due (₹)", kind: "money" as const, total: true, className: "font-medium text-danger" }] : []),
+        ]} />
+    </div>
   );
 }

@@ -90,19 +90,24 @@ route("GET", "/api/dashboard", async ({ query }) => {
 // getEnquiries (+ customer name for the list)
 route("GET", "/api/enquiries", async () =>
   q(`SELECT e.enquiry_id, e.customer_id, e.enquiry_date, e.enquiry_status, e.type, e.billing_address_id, e.delivery_address_id, e.site_id,
-            e.remarks, e.warehouse_id, e.transporter_id, e.delivery_date, c.name AS customer_name, s.site_name,
+            e.remarks, e.warehouse_id, e.transporter_id, e.delivery_date, c.name AS customer_name, c.phone AS customer_phone, s.site_name,
+            w.name AS warehouse_name, t.name AS transporter_name, (SELECT o.order_id FROM orders o WHERE o.enquiry_id = e.enquiry_id ORDER BY o.order_id LIMIT 1) AS order_id,
             (SELECT COUNT(*)::int FROM enquiry_items ei WHERE ei.enquiry_id = e.enquiry_id AND ei.is_active = TRUE) AS item_count,
             (SELECT COALESCE(SUM(ei.quantity * ei.unit_price), 0) FROM enquiry_items ei WHERE ei.enquiry_id = e.enquiry_id AND ei.is_active = TRUE) AS items_value
        FROM enquiries e LEFT JOIN customers c ON c.customer_id = e.customer_id LEFT JOIN sites s ON s.site_id = e.site_id
+       LEFT JOIN warehouses w ON w.warehouse_id = e.warehouse_id LEFT JOIN transporters t ON t.transporter_id = e.transporter_id
       WHERE e.is_active = TRUE ORDER BY e.enquiry_date DESC`));
 
 route("GET", "/api/enquiries/:id", async ({ params }) => {
   const id = num(params.id);
   const enquiry = await one(
     `SELECT e.*, c.name AS customer_name, c.phone AS customer_phone, c.additional_phone_1, c.additional_phone_2, c.gstin, c.pan, c.tcs_status, c.zb_customer_id, c.email,
-            s.site_name, s.site_person_name, s.site_person_contact,
+            s.site_name, s.site_person_name, s.site_person_contact, w.name AS warehouse_name, t.name AS transporter_name,
+            (SELECT o.order_id FROM orders o WHERE o.enquiry_id = e.enquiry_id ORDER BY o.order_id LIMIT 1) AS order_id,
             row_to_json(b) AS billing_address, row_to_json(d) AS delivery_address
        FROM enquiries e
+       LEFT JOIN warehouses w ON w.warehouse_id = e.warehouse_id
+       LEFT JOIN transporters t ON t.transporter_id = e.transporter_id
        LEFT JOIN customers c ON c.customer_id = e.customer_id
        LEFT JOIN sites s ON s.site_id = e.site_id
        LEFT JOIN addresses b ON b.address_id = e.billing_address_id
@@ -214,11 +219,14 @@ route("GET", "/api/zoho/contacts/:id", async ({ params }) => {
 // getOrders + getAllLoadingSlipItems (for list labels and loading slip search)
 route("GET", "/api/orders", async () =>
   q(`SELECT o.order_id, o.order_number, o.enquiry_id, o.order_date, o.payment_type, o.order_status, o.total_amount, o.customer_id, o.loading_slip_id,
-            o.invoice_id, c.name AS customer_name, s.site_name,
+            o.invoice_id, o.warehouse_id, o.transporter_id, o.updated_at, c.name AS customer_name, s.site_name, w.name AS warehouse_name, t.name AS transporter_name,
+            v.vehicle_number, i.zb_invoice_number,
             (SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) FROM order_items oi WHERE oi.order_id = o.order_id AND oi.is_active = TRUE) AS items_value,
             (SELECT lsi.loading_slip_file_name FROM loading_slip_items lsi WHERE lsi.loading_slip_id = o.loading_slip_id ORDER BY lsi.loading_slip_item_id LIMIT 1) AS loading_slip_file_name,
             (SELECT ARRAY_AGG(lsi.loading_slip_number::text) FROM loading_slips ls JOIN loading_slip_items lsi ON lsi.loading_slip_id = ls.loading_slip_id WHERE ls.order_id = o.order_id) AS loading_slip_numbers
        FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN sites s ON s.site_id = o.site_id
+       LEFT JOIN warehouses w ON w.warehouse_id = o.warehouse_id LEFT JOIN transporters t ON t.transporter_id = o.transporter_id
+       LEFT JOIN vehicles v ON v.vehicle_id = o.vehicle_id LEFT JOIN invoices i ON i.invoice_id = o.invoice_id
       WHERE o.is_active = TRUE ORDER BY o.order_date DESC`));
 
 async function loadingSlipItems(orderId: number) {
@@ -546,10 +554,13 @@ route("GET", "/api/loading-slips", async (req) => {
 // ------------------------------------------------------------ cash bills
 
 const CASH_BASE = `SELECT o.order_id, o.order_number, o.order_date, o.total_amount, o.customer_id, o.order_status, c.name AS customer_name,
+    o.warehouse_id, w.name AS warehouse_name, s.site_name, cc.last_collected, cc.payments,
     lsi.loading_slip_file_name, lsi.loading_slip_number, COALESCE(cc.total_collected, 0) AS total_collected
   FROM orders o
   LEFT JOIN customers c ON c.customer_id = o.customer_id
-  LEFT JOIN (SELECT order_id, SUM(amount) AS total_collected FROM cash_collected WHERE is_active = TRUE GROUP BY order_id) cc ON o.order_id = cc.order_id
+  LEFT JOIN warehouses w ON w.warehouse_id = o.warehouse_id
+  LEFT JOIN sites s ON s.site_id = o.site_id
+  LEFT JOIN (SELECT order_id, SUM(amount) AS total_collected, MAX(collection_date) AS last_collected, COUNT(*)::int AS payments FROM cash_collected WHERE is_active = TRUE GROUP BY order_id) cc ON o.order_id = cc.order_id
   LEFT JOIN loading_slips ls ON ls.order_id = o.order_id AND ls.is_active = TRUE
   LEFT JOIN (SELECT DISTINCT ON (loading_slip_id) loading_slip_id, loading_slip_file_name, loading_slip_number FROM loading_slip_items
              WHERE is_active = TRUE ORDER BY loading_slip_id, loading_slip_item_id ASC) lsi ON lsi.loading_slip_id = ls.loading_slip_id`;

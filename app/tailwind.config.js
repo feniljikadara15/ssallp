@@ -3,6 +3,8 @@
 // classes in src/index.css built from these. Values with a reason carry it inline.
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  // Tone classes are picked at runtime (`badge-${tone}`), so keep them all.
+  safelist: [{ pattern: /^(badge|notice)-(success|warning|danger|info|neutral|brand)$/ }],
   theme: {
     extend: {
       colors: {
