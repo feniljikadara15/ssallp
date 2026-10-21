@@ -252,20 +252,25 @@ function Stepper({ order: o }: { order: any }) {
   ];
   const current = steps.findIndex((x) => !x.done);
   return (
-    <ol className="mt-5 grid grid-cols-5 gap-1">
-      {steps.map((st, i) => (
-        <li key={st.label} className="relative min-w-0">
-          {i > 0 && <span className={clsx("absolute right-1/2 top-3 h-0.5 w-full -translate-y-1/2", steps[i - 1].done && (st.done || i === current) ? "bg-primary" : "bg-gray-200")} style={{ marginRight: 14 }} />}
-          <div className="relative flex flex-col items-center text-center">
-            <span className={clsx("grid h-6 w-6 place-items-center rounded-full text-2xs font-semibold ring-4 ring-white",
-              st.done ? "bg-primary text-white" : i === current ? "bg-white text-primary ring-primary/15 outline outline-2 outline-primary" : "bg-gray-100 text-gray-400")}>
-              {st.done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : i + 1}
+    <ol className="mt-5 grid grid-cols-5">
+      {steps.map((st, i) => {
+        const active = i === current;
+        return (
+          <li key={st.label} className="relative flex min-w-0 flex-col items-center text-center">
+            {/* connector to the next step, drawn between the two circles */}
+            {i < steps.length - 1 && (
+              <span aria-hidden className={clsx("absolute top-[13px] h-0.5 rounded-full", st.done && steps[i + 1].done ? "bg-primary" : st.done ? "bg-primary/40" : "bg-gray-200")}
+                style={{ left: "calc(50% + 18px)", right: "calc(-50% + 18px)" }} />
+            )}
+            <span className={clsx("relative z-10 grid h-7 w-7 place-items-center rounded-full text-xs font-semibold",
+              st.done ? "bg-primary text-white" : active ? "border-2 border-primary bg-white text-primary" : "border border-gray-300 bg-white text-gray-500")}>
+              {st.done ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
             </span>
-            <span className={clsx("mt-1.5 text-2xs font-medium", st.done || i === current ? "text-secondary" : "text-gray-400")}>{st.label}</span>
+            <span className={clsx("mt-2 max-w-full truncate px-1 text-2xs font-medium", st.done || active ? "text-secondary" : "text-gray-500")}>{st.label}</span>
             <span className="hidden max-w-full truncate px-1 text-2xs text-gray-400 sm:block">{st.note}</span>
-          </div>
-        </li>
-      ))}
+          </li>
+        );
+      })}
     </ol>
   );
 }
