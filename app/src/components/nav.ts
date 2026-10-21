@@ -1,5 +1,5 @@
 import {
-  Banknote, CarFront, ClipboardCheck, LayoutDashboard, MessagesSquare, Package, Tag, Truck, UserRound, Users, Warehouse, type LucideIcon,
+  Banknote, CarFront, ClipboardCheck, History, LayoutDashboard, MessagesSquare, Package, Tag, Truck, UserRound, Users, Warehouse, type LucideIcon,
 } from "lucide-react";
 
 // Same sections and order as the Retool sidebar.
@@ -21,4 +21,5 @@ export const NAV: { section: string; items: { to: string; label: string; icon: L
     { to: "/customers", label: "Customers", icon: Users },
     { to: "/loading-slips", label: "Loading Slips", icon: Package },
   ] },
+  { section: "Admin", items: [{ to: "/audit", label: "Audit log", icon: History }] },
 ];

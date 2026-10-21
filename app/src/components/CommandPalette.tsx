@@ -33,11 +33,11 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const ord: Hit[] = (orders.data ?? [])
       .filter((o) => has(o.customer_name, o.order_number, o.loading_slip_file_name) || String(o.order_id) === digits)
       .slice(0, 6)
-      .map((o) => ({ key: `o${o.order_id}`, group: "Orders", icon: ClipboardCheck, title: `${o.customer_name ?? "Order"} · #${o.order_id}`, meta: [ORDER_STATUS[o.order_status], fmtDate(o.order_date)].filter(Boolean).join(" · "), to: `/orders?id=${o.order_id}` }));
+      .map((o) => ({ key: `o${o.order_id}`, group: "Orders", icon: ClipboardCheck, title: `${o.customer_name ?? "Order"} · #${o.order_id}`, meta: [ORDER_STATUS[o.order_status], fmtDate(o.order_date)].filter(Boolean).join(" · "), to: `/orders/${o.order_id}` }));
     const enq: Hit[] = (enquiries.data ?? [])
       .filter((e) => has(e.customer_name) || String(e.enquiry_id) === digits)
       .slice(0, 5)
-      .map((e) => ({ key: `e${e.enquiry_id}`, group: "Enquiries", icon: MessagesSquare, title: `${e.customer_name ?? "Enquiry"} · EN-${e.enquiry_id}`, meta: [ENQ_STATUS[e.enquiry_status], fmtDate(e.enquiry_date)].filter(Boolean).join(" · "), to: `/enquiries?id=${e.enquiry_id}` }));
+      .map((e) => ({ key: `e${e.enquiry_id}`, group: "Enquiries", icon: MessagesSquare, title: `${e.customer_name ?? "Enquiry"} · EN-${e.enquiry_id}`, meta: [ENQ_STATUS[e.enquiry_status], fmtDate(e.enquiry_date)].filter(Boolean).join(" · "), to: `/enquiries/${e.enquiry_id}` }));
     const cus: Hit[] = (customers.data ?? [])
       .filter((c) => has(c.name, c.phone, c.gstin))
       .slice(0, 5)
@@ -59,32 +59,32 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const loading = q.trim() && (orders.isLoading || enquiries.isLoading || customers.isLoading);
 
   return (
-    <div className="fade-in fixed inset-0 z-[65] flex items-start justify-center bg-secondary/40 p-4 pt-[12vh] backdrop-blur-[2px]" onMouseDown={onClose}>
-      <div role="dialog" aria-label="Search" className="pop-in w-full max-w-xl overflow-hidden rounded-xl2 bg-white shadow-2xl shadow-black/25" onMouseDown={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-3 border-b border-black/[0.06] px-4">
-          <Search className="h-4 w-4 shrink-0 text-gray-400" />
+    <div className="dialog-backdrop fade-in fixed inset-0 z-[65] flex items-start justify-center p-4 pt-[12vh]" onMouseDown={onClose}>
+      <div role="dialog" aria-label="Search" className="dialog-panel w-full max-w-xl overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 border-b border-line px-4">
+          <Search className="h-4 w-4 shrink-0 text-faint" />
           <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
-            placeholder="Search orders, enquiries, customers or pages…" className="h-12 w-full bg-transparent text-sm text-secondary outline-none placeholder:text-gray-400" />
-          <kbd className="hidden shrink-0 rounded border border-black/10 bg-gray-50 px-1.5 py-0.5 text-2xs text-gray-500 sm:block">Esc</kbd>
+            placeholder="Search orders, enquiries, customers or pages" className="h-12 w-full bg-transparent text-[14px] text-ink outline-none placeholder:text-faint" />
+          <kbd className="hidden shrink-0 rounded border border-line bg-surface-alt px-1.5 py-0.5 text-[11px] text-faint sm:block">Esc</kbd>
         </div>
-        <div ref={listRef} className="max-h-[52vh] overflow-y-auto p-1.5">
+        <div ref={listRef} className="max-h-[52vh] overflow-y-auto py-1">
           {hits.map((h, i) => (
             <div key={h.key}>
-              {(i === 0 || hits[i - 1].group !== h.group) && <div className="px-2.5 pb-1 pt-2.5 text-2xs font-medium uppercase tracking-wide text-gray-400">{h.group}</div>}
+              {(i === 0 || hits[i - 1].group !== h.group) && <div className="px-4 pb-1 pt-2.5 text-[11px] font-medium uppercase tracking-wider text-faint">{h.group}</div>}
               <button data-i={i} onMouseEnter={() => setActive(i)} onClick={() => go(h)}
-                className={clsx("flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left", i === active ? "bg-primary-50" : "hover:bg-gray-50")}>
-                <h.icon className={clsx("h-4 w-4 shrink-0", i === active ? "text-primary" : "text-gray-400")} />
+                className={clsx("flex w-full items-center gap-3 px-4 py-2 text-left", i === active ? "bg-brand-soft" : "hover:bg-surface-alt")}>
+                <h.icon className={clsx("h-4 w-4 shrink-0", i === active ? "text-brand" : "text-faint")} strokeWidth={1.75} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-secondary">{h.title}</span>
-                  {h.meta && <span className="block truncate text-2xs text-gray-500">{h.meta}</span>}
+                  <span className={clsx("block truncate text-[13.5px] font-medium", i === active ? "text-brand" : "text-ink")}>{h.title}</span>
+                  {h.meta && <span className="block truncate text-[12px] text-faint">{h.meta}</span>}
                 </span>
-                {i === active && <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-gray-400" />}
+                {i === active && <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-faint" />}
               </button>
             </div>
           ))}
-          {!hits.length && <div className="px-3 py-10 text-center text-xs text-gray-400">{loading ? "Searching…" : `Nothing matches “${q}”`}</div>}
+          {!hits.length && <div className="px-4 py-10 text-center text-[13px] text-faint">{loading ? "Searching" : `Nothing matches "${q}"`}</div>}
         </div>
-        <div className="flex items-center gap-4 border-t border-black/[0.06] bg-gray-50/70 px-4 py-2 text-2xs text-gray-500">
+        <div className="flex items-center gap-4 border-t border-line bg-surface-alt px-4 py-2 text-[12px] text-faint">
           <span><kbd className="font-sans">↑↓</kbd> to move</span><span><kbd className="font-sans">↵</kbd> to open</span>
           <span className="ml-auto">Order no., customer, phone or GSTIN</span>
         </div>

@@ -1,14 +1,42 @@
-// Display helpers. Dates show as DD-MM-YYYY in India time, like the Retool app.
+// Display helpers. Dates are shown in India time as "09 Oct 2026"; plain
+// 'YYYY-MM-DD' values are calendar dates and are never shifted.
 
 const IST = "Asia/Kolkata";
+const IST_MS = 330 * 60000;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const p2 = (n: number) => String(n).padStart(2, "0");
 
-export function fmtDate(v: unknown) {
-  if (!v) return "";
+function parts(v: unknown) {
+  if (v === null || v === undefined || v === "") return null;
   const s = String(v);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.split("-").reverse().join("-");
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return s;
-  return d.toLocaleDateString("en-GB", { timeZone: IST }).replace(/\//g, "-");
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) { const [y, m, d] = s.split("-").map(Number); return { y, m: m - 1, d, h: 0, mi: 0, s: 0 }; }
+  const t = new Date(s).getTime();
+  if (Number.isNaN(t)) return null;
+  const x = new Date(t + IST_MS);
+  return { y: x.getUTCFullYear(), m: x.getUTCMonth(), d: x.getUTCDate(), h: x.getUTCHours(), mi: x.getUTCMinutes(), s: x.getUTCSeconds() };
+}
+
+/** 09 Oct 2026 */
+export function fmtDate(v: unknown) {
+  const q = parts(v);
+  return q ? `${p2(q.d)} ${MONTHS[q.m]} ${q.y}` : v ? String(v) : "";
+}
+/** 09 Oct, 14:05 */
+export const dateTime = (v: unknown) => { const q = parts(v); return q ? `${p2(q.d)} ${MONTHS[q.m]}, ${p2(q.h)}:${p2(q.mi)}` : ""; };
+/** 09 Oct 2026, 14:05:09 IST: the exact moment, for the audit log. */
+export const dateTimeFull = (v: unknown) => { const q = parts(v); return q ? `${p2(q.d)} ${MONTHS[q.m]} ${q.y}, ${p2(q.h)}:${p2(q.mi)}:${p2(q.s)} IST` : ""; };
+
+/** Indian digit grouping without a currency sign: 12,34,567 */
+export const num = (v: unknown, digits = 0) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toLocaleString("en-IN", { minimumFractionDigits: digits, maximumFractionDigits: digits }) : "-";
+};
+/** "1 order", "3 orders": explicit singular and plural, never a bare "s". */
+export const plural = (n: number, one: string, many = `${one}s`) => `${num(n)} ${n === 1 ? one : many}`;
+/** "Rows 1 to 50 of 312"; refuses to describe an empty page. */
+export function rowRange(page: number, size: number, total: number) {
+  if (total <= 0) return "No rows";
+  return `Rows ${num(Math.min(total, page * size + 1))} to ${num(Math.min(total, (page + 1) * size))} of ${num(total)}`;
 }
 
 // YYYY-MM-DD of a timestamp in India time, for comparing with date inputs.
@@ -61,7 +89,7 @@ function download(blob: Blob, filename: string) {
 }
 
 // Enquiry and order status codes stored in the database.
-export const ENQUIRY_STATUS: Record<string, string> = { "0": "Ongoing", "1": "Past", "5": "Deleted" };
+export const ENQUIRY_STATUS: Record<string, string> = { "0": "Ongoing", "1": "Converted", "5": "Deleted" };
 export const ORDER_STATUS: Record<string, string> = { "1": "Ongoing", "2": "In transit", "3": "Delivered", "5": "Deleted" };
 
 // Compact rupees for cards and chart axes: ₹950, ₹12.4K, ₹9.6L, ₹1.2Cr.

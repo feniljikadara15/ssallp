@@ -2,22 +2,130 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root { height: 100%; }
-body { font-size: 13px; background: #f5f6f8; color: #1d2233; -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; }
-.tabular { font-variant-numeric: tabular-nums; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: rgba(41,47,69,0.15); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
-::-webkit-scrollbar-thumb:hover { background-color: rgba(41,47,69,0.3); }
-:where(button, a, [tabindex]):focus-visible { outline: 2px solid rgba(242,98,34,0.5); outline-offset: 2px; }
-input:focus-visible, textarea:focus-visible { outline: none; }
+/* Light only, on purpose: warehouse offices and printed slips. */
+:root { color-scheme: light; }
 
-@keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+@layer base {
+  *, ::before, ::after { border-color: theme("colors.line.DEFAULT"); }
+  html, body, #root { height: 100%; }
+  html { background: theme("colors.canvas"); overscroll-behavior-y: none; }
+  body { @apply bg-canvas text-ink antialiased text-[14px]; font-feature-settings: "cv11", "ss01"; overscroll-behavior-y: none; }
+  table { font-variant-numeric: tabular-nums; }
+  /* One focus line, never a glow. Keyboard focus only. Fields show focus with their own border. */
+  :focus-visible { outline: 2px solid theme("colors.brand.DEFAULT"); outline-offset: 2px; }
+  input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+  ::selection { background: rgb(242 98 34 / 0.18); }
+  input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type="number"] { -moz-appearance: textfield; }
+  /* Themed checkboxes everywhere: no OS default look. */
+  input[type="checkbox"] {
+    appearance: none; -webkit-appearance: none; width: 1rem; height: 1rem; flex-shrink: 0; border: 1.5px solid theme("colors.line.strong");
+    border-radius: 0.3rem; background: white; display: inline-grid; place-content: center; cursor: pointer; transition: background-color .12s, border-color .12s;
+  }
+  input[type="checkbox"]:hover { border-color: theme("colors.line.hover"); }
+  input[type="checkbox"]:checked { background: theme("colors.brand.DEFAULT"); border-color: theme("colors.brand.DEFAULT"); }
+  input[type="checkbox"]:checked::after { content: ""; width: 0.55rem; height: 0.3rem; border: 2px solid white; border-top: 0; border-right: 0; transform: rotate(-45deg) translate(1px, -1px); }
+  input[type="checkbox"]:disabled { opacity: .45; cursor: not-allowed; }
+  /* Thin neutral scrollbars; translucent white on the navy sidebar. */
+  * { scrollbar-width: thin; scrollbar-color: theme("colors.line.hover") transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: theme("colors.line.hover"); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background: theme("colors.faint"); background-clip: padding-box; border: 2px solid transparent; }
+}
+
+@layer components {
+  /* Page rhythm: every page root is .page; sections are spaced by the gap, never by margins. */
+  .page { @apply flex flex-col gap-5; }
+
+  /* Type roles: meta 12, body 13.5, card title 14, dialog title 15, page title 20, KPI 22. */
+  .page-title { @apply text-[20px] font-semibold tracking-tight text-ink; }
+  .card-title { @apply text-[14px] font-semibold text-ink; }
+  .dialog-title { @apply text-[15px] font-semibold text-ink; }
+  .meta { @apply text-[12px] text-faint; }
+  .label { @apply mb-1.5 block text-[12px] font-medium text-muted; }
+  .count { @apply text-[12px] tabular-nums text-faint; }
+
+  /* Controls: 36px everywhere a control can sit in a row with another; 32px (sm) inside a table card. */
+  .input { @apply h-9 w-full min-w-0 rounded-lg border border-line-strong bg-surface px-3 text-[13.5px] text-ink outline-none transition-colors placeholder:text-faint hover:border-line-hover focus:border-brand focus:shadow-[0_0_0_1px_theme(colors.brand.DEFAULT)] disabled:bg-surface-alt disabled:text-faint; }
+  .input-sm { @apply h-8 text-[13px]; }
+  textarea.input { @apply h-auto py-2; }
+  .btn { @apply inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-line-strong bg-surface px-3 text-[13.5px] font-medium text-ink shadow-card transition-colors hover:border-line-hover hover:bg-surface-alt disabled:pointer-events-none disabled:opacity-50; }
+  .btn-primary { @apply inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-brand-dark/40 bg-brand px-3.5 text-[13.5px] font-medium text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.12),0_1px_2px_rgb(16_24_40/0.12)] transition-colors hover:bg-brand-dark disabled:pointer-events-none disabled:border-transparent disabled:bg-neutral-200 disabled:text-faint disabled:shadow-none; }
+  .btn-danger { @apply inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-danger-line bg-surface px-3 text-[13.5px] font-medium text-danger transition-colors hover:bg-danger-soft disabled:pointer-events-none disabled:opacity-50; }
+  .btn-danger-solid { @apply inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-transparent bg-danger px-3.5 text-[13.5px] font-medium text-white transition-colors hover:brightness-110 disabled:pointer-events-none disabled:opacity-50; }
+  .btn-success { @apply inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-transparent bg-success px-3.5 text-[13.5px] font-medium text-white transition-colors hover:brightness-110 disabled:pointer-events-none disabled:opacity-50; }
+  .btn-ghost { @apply inline-flex h-9 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-[13.5px] font-medium text-muted transition-colors hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-50; }
+  .btn-sm { @apply h-8 px-2.5 text-[13px]; }
+  .btn-icon { @apply inline-grid h-8 w-8 shrink-0 place-items-center rounded-lg text-faint transition-colors hover:bg-hover hover:text-ink disabled:pointer-events-none disabled:opacity-35; }
+  .btn-icon-sm { @apply h-7 w-7 rounded-md; }
+  .btn-icon-danger { @apply hover:bg-danger-soft hover:text-danger; }
+  /* Filled buttons need an offset focus ring, or the ring paints onto the button. */
+  .btn-primary:focus-visible, .btn-danger-solid:focus-visible, .btn-success:focus-visible { outline-offset: 2px; }
+
+  /* Surfaces. */
+  .card { @apply rounded-xl border border-line bg-surface shadow-card; }
+  .card-head { @apply flex min-h-[52px] flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5; }
+  .card-body { @apply p-4; }
+  .card-foot { @apply border-t border-line px-4 py-2.5 text-[12px] text-faint; }
+  .pop { @apply rounded-xl border border-line bg-surface shadow-pop; animation: pop-in 0.12s ease-out; }
+  .dialog-panel { @apply rounded-xl border border-line bg-surface shadow-dialog; animation: pop-in 0.16s ease-out; }
+  .dialog-backdrop { background: rgb(17 24 39 / 0.45); }
+
+  /* Segmented tabs. Scroll sideways on phones with a fading edge; never wrap. */
+  .seg { @apply inline-flex max-w-full overflow-x-auto rounded-lg border border-line bg-surface-alt p-0.5; scrollbar-width: none; }
+  .seg::-webkit-scrollbar { display: none; }
+  .seg > a, .seg > button { @apply inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-[7px] text-[13px] font-medium text-faint transition-colors hover:text-ink; }
+  .seg > a[data-active="true"], .seg > button[data-active="true"] { @apply bg-surface text-ink shadow-card ring-1 ring-line; }
+  .seg-sm > a, .seg-sm > button { @apply px-2.5 py-1 text-[12px]; }
+  @media (max-width: 640px) { .seg { mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent); } }
+
+  /* Status: badges, dots and notices all read the one tone map. */
+  .badge { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-[12px] font-medium ring-1 ring-inset; }
+  .badge-success { @apply bg-success-soft text-success ring-success-line; }
+  .badge-warning { @apply bg-warning-soft text-warning ring-warning-line; }
+  .badge-danger { @apply bg-danger-soft text-danger ring-danger-line; }
+  .badge-info { @apply bg-info-soft text-info ring-info-line; }
+  .badge-neutral { @apply bg-surface-alt text-muted ring-line; }
+  .badge-brand { @apply bg-brand-soft text-brand ring-brand-line; }
+  .dot { @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full; }
+  .notice { @apply rounded-lg border px-3.5 py-2.5 text-[13px] leading-snug; }
+  .notice-success { @apply border-success-line bg-success-soft text-success; }
+  .notice-warning { @apply border-warning-line bg-warning-soft text-warning; }
+  .notice-danger { @apply border-danger-line bg-danger-soft text-danger; }
+  .notice-info { @apply border-info-line bg-info-soft text-info; }
+  .notice-neutral { @apply border-line bg-surface-alt text-muted; }
+
+  /* Definition grid used on detail pages. */
+  .kv { @apply grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4; }
+}
+
+/* Tables: hairline column rules, light, so the eye can follow a column without boxing every cell. */
+.tbl th.c, .tbl td.c { border-right: 1px solid rgb(231 233 238 / 0.8); }
+.tbl th.c:last-child, .tbl td.c:last-child { border-right: 0; }
+
+@keyframes pop-in { from { opacity: 0; transform: translateY(4px) scale(0.985); } to { opacity: 1; transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+@keyframes nav-progress { from { width: 0; } to { width: 88%; } }
 .pop-in { animation: pop-in 0.14s ease-out; }
 .fade-in { animation: fade-in 0.15s ease-out; }
-.toast-in { animation: toast-in 0.2s ease-out; }
-.toast-out { opacity: 0; transform: translateY(4px); transition: all 0.18s ease-in; }
-.skeleton { background: linear-gradient(90deg, #ececf0 0px, #f6f6f8 160px, #ececf0 320px); background-size: 800px 100%; animation: shimmer 1.4s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .pop-in, .fade-in, .toast-in, .skeleton { animation: none; } }
+.skeleton { background: linear-gradient(90deg, #eef0f3 0px, #f6f7f9 160px, #eef0f3 320px); background-size: 800px 100%; animation: shimmer 1.4s linear infinite; }
+.tabular { font-variant-numeric: tabular-nums; }
+.scroll-on-navy { scrollbar-color: rgb(255 255 255 / 0.28) transparent; }
+.scroll-on-navy::-webkit-scrollbar-thumb { background: rgb(255 255 255 / 0.25); background-clip: padding-box; }
+
+/* Skip link: first focusable element, visible only when focused. */
+.skip-link { position: absolute; left: 0.5rem; top: -3rem; z-index: 200; border-radius: 0.5rem; background: white; padding: 0.5rem 0.75rem; font-size: 13px; font-weight: 500; box-shadow: 0 2px 8px rgb(0 0 0 / 0.15); }
+.skip-link:focus { top: 0.5rem; }
+
+@media print {
+  .no-print { display: none !important; }
+  body { background: white; }
+  .card { box-shadow: none; }
+}
+
+/* Motion is decorative only, so it is fully disabled when the person asks for reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
