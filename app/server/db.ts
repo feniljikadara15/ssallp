@@ -16,17 +16,9 @@ async function connectPg(): Promise<Driver> {
   pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
   pg.types.setTypeParser(1082, (v) => v);
   const needsSsl = !/localhost|127\.0\.0\.1/.test(config.databaseUrl) && !/sslmode=disable/.test(config.databaseUrl);
-  // An sslmode in the URL would override the ssl option below, so drop it.
-  let connectionString = config.databaseUrl;
-  try {
-    const url = new URL(config.databaseUrl);
-    url.searchParams.delete("sslmode");
-    connectionString = url.toString();
-  } catch {
-    // Not parseable as a URL (e.g. a password with unescaped symbols); pg reads it as is.
-  }
+  const target = parseDatabaseUrl(config.databaseUrl);
   const pool = new pg.Pool({
-    connectionString,
+    ...target,
     ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
     max: 3,
     // Fail in seconds with a clear message instead of leaving pages loading.
@@ -43,9 +35,29 @@ async function connectPg(): Promise<Driver> {
   return driver;
 }
 
+// Reads DATABASE_URL into connection settings. Passwords often contain "@",
+// "#", "/" or "?" (e.g. Supabase's), which a strict URL parser misreads unless
+// they are %-encoded; this accepts both forms. The host is taken after the LAST
+// "@", so everything before it belongs to the user and password.
+export function parseDatabaseUrl(raw: string) {
+  const m = raw.trim().match(/^postgres(?:ql)?:\/\/([^:@]+)(?::(.*))?@([^@/?#:]+)(?::(\d+))?(?:\/([^?#]*))?(?:\?(.*))?$/s);
+  if (!m) throw new Error("DATABASE_URL isn't a postgresql:// connection string");
+  const [, user, password = "", host, port, database, query] = m;
+  const dec = (v: string) => { try { return decodeURIComponent(v); } catch { return v; } };
+  const params = new URLSearchParams(query ?? "");
+  return {
+    user: dec(user),
+    password: dec(password),
+    host,
+    port: port ? Number(port) : 5432,
+    database: dec(database || "postgres"),
+    ...(params.get("options") ? { options: params.get("options")! } : {}),
+  };
+}
+
 function explainConnectionError(e: any) {
   const msg = String(e?.message ?? e);
-  const host = (() => { try { return new URL(config.databaseUrl).hostname; } catch { return ""; } })();
+  const host = (() => { try { return parseDatabaseUrl(config.databaseUrl).host; } catch { return ""; } })();
   if (/^db\.[a-z0-9]+\.supabase\.co$/.test(host))
     return `Can't connect to the database (${msg}). This is Supabase's Direct connection address, which Vercel can't reach. In Supabase click Connect, choose "Transaction pooler" and use that URI (port 6543) as DATABASE_URL.`;
   if (/password authentication failed/i.test(msg)) return `Database password is wrong in DATABASE_URL (${msg}).`;
