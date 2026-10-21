@@ -37,14 +37,15 @@ export function Section({ title, description, meta, actions, children, className
 
 /** Title row: breadcrumb above, title + status and subtitle on the left, actions on the right.
  *  Action order: secondary actions first, at most one primary action last. */
-export function PageHeader({ title, description, subtitle, breadcrumb, status, children }: {
-  title: string; description?: ReactNode; subtitle?: ReactNode; breadcrumb?: { to: string; label: string }[]; status?: ReactNode; children?: ReactNode;
+export function PageHeader({ title, description, subtitle, breadcrumb, status, aside, children }: {
+  title: string; description?: ReactNode; subtitle?: ReactNode; breadcrumb?: { to: string; label: string }[]; status?: ReactNode;
+  /** Status pills pinned to the top right, on the title's line. */
+  aside?: ReactNode; children?: ReactNode;
 }) {
-  useEffect(() => { document.title = `${title} · Sambhavnath OMS`; }, [title]);
   const sub = subtitle ?? description;
   return (
-    <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
-      <div className="min-w-0 flex-1 basis-72">
+    <div className={clsx("flex gap-x-4 gap-y-3", aside ? "flex-col lg:flex-row lg:items-start lg:justify-between" : "flex-wrap items-end")}>
+      <div className={clsx("min-w-0", aside ? "lg:flex-1" : "flex-1 basis-72")}>
         {breadcrumb && breadcrumb.length > 0 && (
           <nav aria-label="Breadcrumb" className="no-print mb-1.5 flex flex-wrap items-center gap-1 text-[12px] text-faint">
             {breadcrumb.map((b, i) => (
@@ -61,7 +62,9 @@ export function PageHeader({ title, description, subtitle, breadcrumb, status, c
         </div>
         {sub && <p className="mt-1 text-[13px] text-faint">{sub}</p>}
       </div>
-      {children && <div className="no-print flex flex-wrap items-center gap-2">{children}</div>}
+      {aside ? (
+        <div className="no-print flex flex-wrap items-center gap-2 lg:flex-nowrap lg:justify-end">{aside}{children}</div>
+      ) : children && <div className="no-print flex flex-wrap items-center gap-2">{children}</div>}
     </div>
   );
 }

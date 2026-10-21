@@ -83,7 +83,7 @@
   /* Status: badges, dots and notices all read the one tone map. */
   .badge { @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12px] font-medium ring-1 ring-inset; }
   /* The larger status pill: dot, soft fill, hairline border. */
-  .pill { @apply gap-2 px-3 py-1 text-[13px]; }
+  .pill { @apply shrink-0 gap-2 px-3 py-1 text-[13px]; }
   .badge-success { @apply bg-success-soft text-success ring-success-line; }
   .badge-warning { @apply bg-warning-soft text-warning ring-warning-line; }
   .badge-danger { @apply bg-danger-soft text-danger ring-danger-line; }

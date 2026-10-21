@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { post, queryClient } from "../api";
 import { LogoMark } from "../components/Logo";
 import { Notice } from "../components/ui";
@@ -12,7 +12,6 @@ export default function Login() {
   const [caps, setCaps] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { document.title = "Sign in · Sambhavnath OMS"; }, []);
   // The most common reason a correct password fails.
   const checkCaps = (e: React.KeyboardEvent<HTMLInputElement>) => setCaps(e.getModifierState?.("CapsLock") ?? false);
 

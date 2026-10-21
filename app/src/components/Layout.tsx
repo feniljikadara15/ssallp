@@ -2,7 +2,7 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { useEffect, useState } from "react";
 import { LogOut, Menu, Search, X } from "lucide-react";
-import { post, useGet, type Health, type Session } from "../api";
+import { post, type Session } from "../api";
 import { LogoMark } from "./Logo";
 import { NAV } from "./nav";
 import { CommandPalette } from "./CommandPalette";
@@ -68,23 +68,6 @@ function Sidebar({ onSearch, session }: { onSearch: () => void; session: Session
   );
 }
 
-// Tells people when they're looking at sample data or when an integration
-// isn't connected, so a skipped WhatsApp message isn't a surprise.
-function StatusBanner() {
-  const { data } = useGet<Health>("health");
-  if (!data) return null;
-  const missing = [!data.zoho && "Zoho Books", !data.whatsapp && "WhatsApp"].filter(Boolean) as string[];
-  const text = data.mode === "demo"
-    ? "Demo mode: sample data that resets when the server restarts. Nothing is sent to Zoho Books or WhatsApp."
-    : missing.length ? `${missing.join(" and ")} ${missing.length > 1 ? "are" : "is"} not connected, so invoices, imports or messages that need ${missing.length > 1 ? "them" : "it"} will be refused.` : null;
-  if (!text) return null;
-  return (
-    <div className="no-print flex items-center justify-center gap-2 border-b border-warning-line bg-warning-soft px-4 py-1.5 text-center text-[12px] text-warning">
-      <span className="dot bg-warning-fill" />{text}
-    </div>
-  );
-}
-
 export default function Layout({ session }: { session: Session }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState(false);
@@ -113,7 +96,6 @@ export default function Layout({ session }: { session: Session }) {
           <div className="min-w-0 flex-1 truncate text-[14px] font-semibold text-ink">{current?.label ?? "Sambhavnath"}</div>
           <button onClick={() => setSearch(true)} className="btn-icon" aria-label="Search"><Search className="h-4 w-4" /></button>
         </div>
-        <StatusBanner />
         <main id="main" tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto px-4 py-5 outline-none sm:px-6 lg:px-8 lg:py-7">
           <div className="mx-auto max-w-[1500px]"><Outlet /></div>
         </main>
