@@ -40,15 +40,15 @@ function Sidebar({ onSearch, session }: { onSearch: () => void; session: Session
       <nav className="scroll-on-navy flex-1 overflow-y-auto px-3 py-3" aria-label="Main">
         {NAV.map((g) => (
           <div key={g.section} className="mb-4">
-            <div className="flex w-full items-center gap-2 px-2 pb-1.5 text-[12px] font-semibold uppercase tracking-wider text-brand-light">
-              {g.section}<span className="h-px flex-1 bg-brand-light/20" />
+            <div className="flex w-full items-center gap-2 px-2 pb-1.5 text-[12px] font-semibold uppercase tracking-wider text-white/45">
+              {g.section}<span className="h-px flex-1 bg-white/10" />
             </div>
             {g.items.map((i) => {
               const active = i === current;
               return (
                 <Link key={i.to} to={i.to} aria-current={active ? "page" : undefined}
                   className={clsx("group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] transition-colors", active ? "bg-white/15 font-medium text-white" : "text-white/75 hover:bg-white/10 hover:text-white")}>
-                  <i.icon className={clsx("h-[18px] w-[18px] shrink-0", active ? "text-brand-light" : "text-white/55 group-hover:text-white/85")} strokeWidth={1.75} />
+                  <i.icon className={clsx("h-[18px] w-[18px] shrink-0", active ? "text-white" : "text-white/55 group-hover:text-white/85")} strokeWidth={1.75} />
                   {i.label}
                 </Link>
               );

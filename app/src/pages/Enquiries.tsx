@@ -11,7 +11,7 @@ import { Badge, Button, DateRange, ErrorBox, FilterBar, PageHeader, Select, Stat
 // Enquiries are customer requests. Picking a warehouse and transporter makes
 // one ready to become an order; deleted ones can be restored.
 export const ENQUIRY_STATUS_BADGE: Record<string, { label: string; tone: Tone }> = {
-  "0": { label: "Ongoing", tone: "warning" }, "1": { label: "Converted", tone: "success" }, "5": { label: "Deleted", tone: "neutral" },
+  "0": { label: "Ongoing", tone: "neutral" }, "1": { label: "Converted", tone: "success" }, "5": { label: "Deleted", tone: "neutral" },
 };
 const STATUS = [["0", "Ongoing"], ["1", "Converted"], ["5", "Deleted"]] as const;
 const FILTERS = ["customer", "warehouse", "source", "ready", "from", "to"] as const;

@@ -100,7 +100,7 @@ export function DataTable({
   const hasTotals = Object.keys(totals).length > 0 && filtered.length > 0;
   const align = (c: Col) => c.align ?? (isNum(c) ? "right" : "left");
   const ta = (c: Col) => ({ left: "text-left", right: "text-right", center: "text-center" })[align(c)];
-  const span = cols.length + 1 + (rowActions ? 1 : 0);
+  const span = cols.length + (rowActions ? 1 : 0);
 
   const exportInput = () => {
     const ec = cols.filter((c) => !c.noExport);
@@ -154,9 +154,7 @@ export function DataTable({
                   {c.label}<span className="ml-1 text-faint">{sort?.key === c.key ? (sort.dir === 1 ? "↑" : "↓") : ""}</span>
                 </th>
               ))}
-              {/* Spare width collects here, so columns sit next to their data instead of spreading apart. */}
-              <th aria-hidden className="w-full p-0" />
-              {rowActions && <th className="c no-print whitespace-nowrap bg-surface-alt px-3 py-2.5 pr-4 text-right text-[12px] font-medium text-faint shadow-[-1px_0_0_theme(colors.line.DEFAULT)] sm:sticky sm:right-0">Actions</th>}
+              {rowActions && <th className="c no-print w-px whitespace-nowrap bg-surface-alt px-3 py-2.5 pr-4 text-right text-[12px] font-medium text-faint shadow-[-1px_0_0_theme(colors.line.DEFAULT)] sm:sticky sm:right-0">Actions</th>}
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -176,7 +174,6 @@ export function DataTable({
                       {c.sub && <div className="mt-0.5 text-[12px] leading-snug text-faint">{c.sub(r)}</div>}
                     </td>
                   ))}
-                  <td aria-hidden className="p-0" />
                   {rowActions && (
                     <td className="c no-print h-10 whitespace-nowrap bg-surface px-2 pr-3 text-right shadow-[-1px_0_0_theme(colors.line.DEFAULT)] sm:sticky sm:right-0" onClick={(e) => e.stopPropagation()}>
                       <span className="inline-flex items-center gap-0.5">
@@ -210,7 +207,7 @@ export function DataTable({
                     {c.key in totals ? (c.kind === "money" ? `₹${num(totals[c.key], 2).replace(/\.00$/, "")}` : c.kind === "int" ? num(totals[c.key]) : Number(totals[c.key]).toLocaleString("en-IN", { maximumFractionDigits: 3 })) : i === 0 ? "Total" : ""}
                   </td>
                 ))}
-                <td aria-hidden className="p-0" />{rowActions && <td className="c no-print" />}
+                {rowActions && <td className="c no-print" />}
               </tr>
             </tfoot>
           )}

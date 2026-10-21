@@ -72,10 +72,10 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
             <div key={h.key}>
               {(i === 0 || hits[i - 1].group !== h.group) && <div className="px-4 pb-1 pt-2.5 text-[11px] font-medium uppercase tracking-wider text-faint">{h.group}</div>}
               <button data-i={i} onMouseEnter={() => setActive(i)} onClick={() => go(h)}
-                className={clsx("flex w-full items-center gap-3 px-4 py-2 text-left", i === active ? "bg-brand-soft" : "hover:bg-surface-alt")}>
-                <h.icon className={clsx("h-4 w-4 shrink-0", i === active ? "text-brand" : "text-faint")} strokeWidth={1.75} />
+                className={clsx("flex w-full items-center gap-3 px-4 py-2 text-left", i === active ? "bg-hover" : "hover:bg-surface-alt")}>
+                <h.icon className={clsx("h-4 w-4 shrink-0", i === active ? "text-ink" : "text-faint")} strokeWidth={1.75} />
                 <span className="min-w-0 flex-1">
-                  <span className={clsx("block truncate text-[13.5px] font-medium", i === active ? "text-brand" : "text-ink")}>{h.title}</span>
+                  <span className={clsx("block truncate text-[13.5px] font-medium", "text-ink")}>{h.title}</span>
                   {h.meta && <span className="block truncate text-[12px] text-faint">{h.meta}</span>}
                 </span>
                 {i === active && <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-faint" />}

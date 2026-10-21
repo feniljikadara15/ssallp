@@ -9,7 +9,7 @@ import { ItemsTable } from "../components/ItemsEditor";
 import { ask, Badge, Button, DateInput, ErrorBox, Field, Input, KV, Loading, Menu, Modal, Notice, PageHeader, Section, Select, StatStrip, toast, type Tone } from "../components/ui";
 
 export const ORDER_STATUS_BADGE: Record<string, { label: string; tone: Tone }> = {
-  "1": { label: "Ongoing", tone: "warning" }, "2": { label: "In transit", tone: "info" }, "3": { label: "Delivered", tone: "success" }, "5": { label: "Deleted", tone: "neutral" },
+  "1": { label: "Ongoing", tone: "neutral" }, "2": { label: "In transit", tone: "info" }, "3": { label: "Delivered", tone: "success" }, "5": { label: "Deleted", tone: "neutral" },
 };
 
 export default function OrderDetail() {
@@ -103,7 +103,7 @@ export default function OrderDetail() {
               <KV className="sm:col-span-2" label="Billing address" value={[b.line1, b.line2, b.city, b.state, b.pincode].filter(Boolean).join(", ")} />
               <KV className="sm:col-span-2" label="Delivery address" value={<>
                 {[s.line1, s.line2, s.city, s.state, s.pincode].filter(Boolean).join(", ")}
-                {s.maps_link && <a className="ml-2 inline-flex items-center gap-1 font-medium text-brand underline-offset-2 hover:underline" href={s.maps_link} target="_blank" rel="noreferrer"><MapPin className="h-3.5 w-3.5" />Map</a>}
+                {s.maps_link && <a className="ml-2 inline-flex items-center gap-1 font-medium text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink" href={s.maps_link} target="_blank" rel="noreferrer"><MapPin className="h-3.5 w-3.5" />Map</a>}
               </>} />
               <KV label="Delivery date" value={fmtDate(o.delivery_date)} />
             </div>
@@ -168,11 +168,11 @@ function Stepper({ order: o }: { order: any }) {
           return (
             <li key={st.label} className="relative flex min-w-0 flex-col items-center text-center" aria-current={active ? "step" : undefined}>
               {i < steps.length - 1 && (
-                <span aria-hidden className={clsx("absolute top-[13px] h-0.5 rounded-full", st.done && steps[i + 1].done ? "bg-brand-fill" : st.done ? "bg-brand-fill/40" : "bg-line")}
+                <span aria-hidden className={clsx("absolute top-[13px] h-0.5 rounded-full", st.done && steps[i + 1].done ? "bg-navy" : st.done ? "bg-brand-light" : "bg-line")}
                   style={{ left: "calc(50% + 18px)", right: "calc(-50% + 18px)" }} />
               )}
               <span className={clsx("relative z-10 grid h-7 w-7 place-items-center rounded-full text-[12px] font-semibold",
-                st.done ? "bg-brand-fill text-white" : active ? "border-2 border-brand bg-surface text-brand" : "border border-line-strong bg-surface text-faint")}>
+                st.done ? "bg-navy text-white" : active ? "border-2 border-brand-light bg-brand-soft text-brand-dark" : "border border-line-strong bg-surface text-faint")}>
                 {st.done ? <Check className="h-4 w-4" strokeWidth={3} /> : i + 1}
               </span>
               <span className={clsx("mt-2 max-w-full truncate px-1 text-[12px] font-medium", st.done || active ? "text-ink" : "text-faint")}>{st.label}</span>

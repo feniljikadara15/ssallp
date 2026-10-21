@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Plus } from "lucide-react";
-import { useGet } from "../api";
+import { useGet, type Health } from "../api";
 import { fmtDate, num, plural } from "../format";
 import { useUrlState } from "../lib/urlState";
 import { Bars, ChartCard, HBars, Split } from "../components/Charts";
@@ -77,18 +77,19 @@ export default function Dashboard() {
 }
 
 function Body({ d }: { d: Data }) {
+  const health = useGet<Health>("health");
   const k = d.kpis;
   const change = k.prev_sales > 0 ? ((k.sales - k.prev_sales) / k.prev_sales) * 100 : null;
   const conv = k.enquiries ? Math.round((k.converted / k.enquiries) * 100) : null;
   const alerts = [
-    d.alerts.no_slip > 0 && { text: `${plural(d.alerts.no_slip, "ongoing order")} without loading slips, so the warehouse can't load ${d.alerts.no_slip === 1 ? "it" : "them"} yet.`, to: "/orders?slips=none", action: "Create slips" },
-    d.alerts.transit > 0 && { text: `${plural(d.alerts.transit, "order")} in transit for more than 2 days without a delivery confirmation.`, to: "/orders?status=2", action: "Review" },
-    d.alerts.enquiry > 0 && { text: `${plural(d.alerts.enquiry, "enquiry", "enquiries")} open for more than 2 days.`, to: "/enquiries", action: "Review" },
-    d.alerts.no_keeper > 0 && { text: `${plural(d.alerts.no_keeper, "warehouse brand")} with no warehouse keeper, so their loading slips can't be sent.`, to: "/warehouses", action: "Assign keepers" },
-  ].filter(Boolean) as { text: string; to: string; action: string }[];
+    d.alerts.no_slip > 0 && { text: `${plural(d.alerts.no_slip, "order")} without loading slips`, hint: "The warehouse can't load them yet", to: "/orders?slips=none" },
+    d.alerts.transit > 0 && { text: `${plural(d.alerts.transit, "order")} in transit over 2 days`, hint: "No delivery confirmation yet", to: "/orders?status=2" },
+    d.alerts.enquiry > 0 && { text: `${plural(d.alerts.enquiry, "enquiry", "enquiries")} open over 2 days`, hint: "Waiting to become orders", to: "/enquiries" },
+    d.alerts.no_keeper > 0 && { text: `${plural(d.alerts.no_keeper, "brand")} without a keeper`, hint: "Their loading slips can't be sent", to: "/warehouses" },
+  ].filter(Boolean) as { text: string; hint: string; to: string }[];
   const splitParts = useMemo(() => [
     { label: "Invoice", value: d.split.find((s) => s.kind === "invoice")?.value ?? 0, color: "#3a4260" },
-    { label: "Cash bill", value: d.split.find((s) => s.kind === "cash")?.value ?? 0, color: "#f26222" },
+    { label: "Cash bill", value: d.split.find((s) => s.kind === "cash")?.value ?? 0, color: "#b9bfcf" },
   ], [d]);
 
   return (
@@ -103,16 +104,17 @@ function Body({ d }: { d: Data }) {
         { label: "Cash outstanding", value: `₹${num(k.cash_due)}`, hint: `${plural(k.cash_bills, "cash bill")} with a balance`, to: "/cash-bills", tone: k.cash_due > 0 ? "danger" : undefined },
       ]} />
 
-      {alerts.length > 0 && (
-        <div className="card divide-y divide-line">
-          {alerts.map((a) => (
-            <div key={a.text} className="flex flex-wrap items-center gap-3 px-4 py-3 text-[13.5px]">
-              <span className="dot bg-warning-fill" aria-hidden /><span className="min-w-0 flex-1">{a.text}</span>
-              <Link to={a.to} className="btn btn-sm">{a.action}</Link>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Status at a glance: integrations, then anything waiting on the team. Each alert opens its list. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {health.data && <>
+          <Badge size="lg" dot tone={health.data.zoho ? "success" : "danger"}>Zoho Books {health.data.zoho ? "connected" : "not connected"}</Badge>
+          <Badge size="lg" dot tone={health.data.whatsapp ? "success" : "danger"}>WhatsApp {health.data.whatsapp ? "connected" : "not connected"}</Badge>
+        </>}
+        {alerts.map((a) => (
+          <Link key={a.text} to={a.to} title={a.hint} className="rounded-full transition-opacity hover:opacity-80"><Badge size="lg" dot tone="warning">{a.text}</Badge></Link>
+        ))}
+        {!alerts.length && <Badge size="lg" dot tone="success">Nothing waiting on the team</Badge>}
+      </div>
 
       {/* Cards side by side are always the same height: each grid cell stretches and its card fills it. */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 [&>*]:flex [&>*]:min-w-0 [&>*>*]:flex-1">

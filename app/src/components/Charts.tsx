@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { num } from "../format";
 
 // Small dependency-free charts: HTML columns rather than a stretched SVG, so
-// labels keep their proportions at every width. Bars are the brand fill; the
+// labels keep their proportions at every width. Bars are navy; the
 // current period can be marked.
 
 export function ChartCard({ title, subtitle, actions, children, className }: { title: string; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
@@ -35,7 +35,7 @@ export function Bars({ data, height = 190, money, highlightLast }: { data: { lab
       {data.map((d, i) => (
         <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1" title={`${d.title ?? d.label}: ${full(d.value, !!money)}`}>
           <span className="hidden text-[11px] tabular-nums text-muted sm:inline">{d.value ? compact(d.value, !!money) : ""}</span>
-          <div className="w-full max-w-10 rounded-t-[3px]" style={{ height: `${Math.max(d.value ? 2 : 0, (d.value / max) * (height - 40))}px`, background: highlightLast && i === data.length - 1 ? "#f26222" : "#3a4260", opacity: highlightLast && i === data.length - 1 ? 1 : 0.85 }} />
+          <div className="w-full max-w-10 rounded-t-[3px]" style={{ height: `${Math.max(d.value ? 2 : 0, (d.value / max) * (height - 40))}px`, background: highlightLast && i === data.length - 1 ? "#f7a77c" : "#3a4260", opacity: 1 }} />
           <span className="w-full truncate text-center text-[11px] text-faint">{d.label}</span>
         </div>
       ))}
@@ -56,7 +56,7 @@ export function HBars({ data, money, max: limit = 8, empty = "Nothing in this pe
             <span className="min-w-0 break-words text-muted">{d.label}{d.hint && <span className="text-faint"> · {d.hint}</span>}</span>
             <span className="shrink-0 font-medium tabular-nums text-ink">{full(d.value, !!money)}</span>
           </div>
-          <div className="mt-1 h-1.5 rounded-full bg-track"><div className="h-1.5 rounded-full bg-brand-fill" style={{ width: `${(d.value / max) * 100}%`, opacity: 0.85 }} /></div>
+          <div className="mt-1 h-1.5 rounded-full bg-track"><div className="h-1.5 rounded-full bg-navy-light" style={{ width: `${(d.value / max) * 100}%`, opacity: 0.85 }} /></div>
         </div>
       ))}
     </div>

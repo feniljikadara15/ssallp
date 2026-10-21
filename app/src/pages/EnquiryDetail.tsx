@@ -72,7 +72,7 @@ export default function EnquiryDetail() {
               <KV className="sm:col-span-2" label="Billing address" value={[b.line1, b.line2, b.city, b.state, b.pincode].filter(Boolean).join(", ")} />
               <KV className="sm:col-span-2" label="Delivery address" value={<>
                 {[d.line1, d.line2, d.city, d.state, d.pincode].filter(Boolean).join(", ")}
-                {d.maps_link && <a className="ml-2 inline-flex items-center gap-1 font-medium text-brand underline-offset-2 hover:underline" href={d.maps_link} target="_blank" rel="noreferrer"><MapPin className="h-3.5 w-3.5" />Map</a>}
+                {d.maps_link && <a className="ml-2 inline-flex items-center gap-1 font-medium text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink" href={d.maps_link} target="_blank" rel="noreferrer"><MapPin className="h-3.5 w-3.5" />Map</a>}
               </>} />
               {e.remarks && <KV className="sm:col-span-2" label="Remarks" value={e.remarks} />}
             </div>

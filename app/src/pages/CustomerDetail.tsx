@@ -73,7 +73,7 @@ export default function CustomerDetail() {
           { key: "site_person_name", label: "Site contact", sub: (r) => r.site_person_contact },
           { key: "line1", label: "Address", value: (r) => [r.line1, r.line2].filter(Boolean).join(", "), className: "max-w-[320px] truncate" },
           { key: "city", label: "City", sub: (r) => [r.state, r.pincode].filter(Boolean).join(" ") },
-          { key: "maps_link", label: "Map", render: (r) => r.maps_link ? <a href={r.maps_link} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 font-medium text-brand hover:underline"><MapPin className="h-3.5 w-3.5" />Open</a> : null },
+          { key: "maps_link", label: "Map", render: (r) => r.maps_link ? <a href={r.maps_link} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 font-medium text-ink underline decoration-line-strong underline-offset-2 hover:decoration-ink"><MapPin className="h-3.5 w-3.5" />Open</a> : null },
         ]} />
 
       <DataTable title="Orders" filename={`${c.name} orders`} rowKey="order_id" rows={myOrders} loading={orders.isLoading} pageSize={10}

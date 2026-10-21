@@ -164,10 +164,10 @@ export function IconButton({ label, icon, onClick, danger, disabled, href }: { l
 export type Tone = "success" | "warning" | "danger" | "info" | "neutral" | "brand";
 // Older call sites name colours; they map onto the status tones.
 const LEGACY_TONE: Record<string, Tone> = { gray: "neutral", orange: "warning", green: "success", blue: "info", red: "danger", yellow: "warning", purple: "info" };
-const DOT: Record<Tone, string> = { success: "bg-success-fill", warning: "bg-warning-fill", danger: "bg-danger-fill", info: "bg-info-fill", neutral: "bg-line-hover", brand: "bg-brand-fill" };
-export function Badge({ tone = "neutral", dot, title, children }: { tone?: Tone | keyof typeof LEGACY_TONE; dot?: boolean; title?: string; children: ReactNode }) {
+const DOT: Record<Tone, string> = { success: "bg-success-fill", warning: "bg-warning-fill", danger: "bg-danger-fill", info: "bg-info-fill", neutral: "bg-line-hover", brand: "bg-brand-light" };
+export function Badge({ tone = "neutral", dot, title, size, children }: { tone?: Tone | keyof typeof LEGACY_TONE; dot?: boolean; title?: string; size?: "lg"; children: ReactNode }) {
   const t: Tone = (LEGACY_TONE[tone] ?? tone) as Tone;
-  return <span title={title} className={clsx("badge", `badge-${t}`)}>{dot && <span className={clsx("dot", DOT[t])} />}{children}</span>;
+  return <span title={title} className={clsx("badge", `badge-${t}`, size === "lg" && "pill")}>{dot && <span className={clsx("dot", DOT[t])} />}{children}</span>;
 }
 /** Status shown as a coloured dot with the label in ink. */
 export function StatusDot({ tone, children }: { tone: Tone; children: ReactNode }) {
@@ -222,7 +222,7 @@ export function Tabs<T extends string>({ tabs, value, onChange, size }: { tabs: 
       {tabs.map((t) => (
         <button key={t.value} type="button" role="tab" aria-selected={value === t.value} data-active={value === t.value} onClick={() => onChange(t.value)}>
           {t.label}
-          {t.count !== undefined && <span className={clsx("tabular text-[12px]", value === t.value ? "text-brand" : "text-faint")}>{t.count.toLocaleString("en-IN")}</span>}
+          {t.count !== undefined && <span className={clsx("tabular text-[12px]", value === t.value ? "text-muted" : "text-faint")}>{t.count.toLocaleString("en-IN")}</span>}
         </button>
       ))}
     </div>
@@ -393,7 +393,7 @@ export function Combobox({ value, onChange, options, placeholder, id }: {
         <ul role="listbox" className="overflow-y-auto py-1">
           {shown.map((o, i) => (
             <li key={o.id} role="option" aria-selected={value.id === o.id} onMouseEnter={() => setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(o)}
-              className={clsx("flex cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-[13.5px]", i === active ? "bg-brand-soft text-brand" : "text-ink", value.id === o.id && "font-semibold")}>
+              className={clsx("flex cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-[13.5px]", i === active ? "bg-hover text-ink" : "text-ink", value.id === o.id && "font-semibold")}>
               <span className="min-w-0 break-words">{o.label}{o.hint && <span className="ml-2 font-normal text-faint">{o.hint}</span>}</span>
               {value.id === o.id && <span className="shrink-0">✓</span>}
             </li>

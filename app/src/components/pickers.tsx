@@ -14,7 +14,7 @@ const trigger = (size?: "sm") => clsx(
   "disabled:cursor-not-allowed disabled:bg-surface-alt disabled:text-faint",
   size === "sm" ? "h-8 text-[13px]" : "h-9 text-[13.5px]",
 );
-const ring = (open: boolean) => (open ? "border-brand shadow-[0_0_0_1px_theme(colors.brand.DEFAULT)]" : "border-line-strong hover:border-line-hover");
+const ring = (open: boolean) => (open ? "border-ink shadow-[0_0_0_1px_theme(colors.ink)]" : "border-line-strong hover:border-line-hover");
 
 export function usePopover<T extends HTMLElement = HTMLButtonElement>(open: boolean, close: () => void, minWidth = 0, panelH = 320) {
   const anchor = useRef<T>(null);
@@ -129,7 +129,7 @@ export function Select({ options, value, onChange, placeholder = "Select", disab
               const selected = String(o.value) === v;
               return (
                 <li key={`${o.value}`} data-i={i} role="option" aria-selected={selected} onMouseEnter={() => setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(String(o.value))}
-                  className={clsx("flex cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-[13.5px]", i === active ? "bg-brand-soft text-brand" : "text-ink", selected && "font-semibold")}>
+                  className={clsx("flex cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-[13.5px]", i === active ? "bg-hover text-ink" : "text-ink", selected && "font-semibold")}>
                   <span className="min-w-0 break-words">{o.label}</span>{selected && <span className="shrink-0">✓</span>}
                 </li>
               );
@@ -226,15 +226,15 @@ export function DateInput({ value = "", onChange, placeholder = "Select date", d
               return (
                 <button type="button" key={s} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(s)}
                   className={clsx("h-8 rounded-lg text-[13px] tabular-nums",
-                    isSel ? "bg-brand font-semibold text-white" : isToday ? "font-semibold text-brand ring-1 ring-inset ring-brand/40" : inMonth ? "text-ink hover:bg-hover" : "text-line-hover hover:bg-surface-alt",
-                    isFocus && !isSel && "bg-brand-soft")}>
+                    isSel ? "bg-navy font-semibold text-white" : isToday ? "font-semibold text-ink ring-1 ring-inset ring-line-hover" : inMonth ? "text-ink hover:bg-hover" : "text-line-hover hover:bg-surface-alt",
+                    isFocus && !isSel && "bg-hover")}>
                   {d.getUTCDate()}
                 </button>
               );
             })}
           </div>
           <div className="mt-2 flex justify-between border-t border-line pt-2">
-            <button type="button" onClick={() => pick(t)} className="text-[12px] font-medium text-brand hover:underline">Today</button>
+            <button type="button" onClick={() => pick(t)} className="text-[12px] font-medium text-ink hover:underline">Today</button>
             {clearable && <button type="button" onClick={() => pick("")} className="text-[12px] text-faint hover:underline">Clear</button>}
           </div>
         </div>,
