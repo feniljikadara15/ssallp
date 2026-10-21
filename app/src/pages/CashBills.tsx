@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import { Download, Wallet } from "lucide-react";
 import { api, post, useAction, useGet } from "../api";
 import { exportRows, fmtDate, includes, inRange, inr, stamp, today } from "../format";
-import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Tabs, toast } from "../components/ui";
+import { Badge, Button, Card, DataTable, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Tabs, toast, DateInput } from "../components/ui";
 import ListItem, { revealDetail } from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
@@ -64,8 +64,8 @@ export default function CashBills() {
             <div className="grid grid-cols-2 gap-2">
               <SearchInput value={num} onChange={setNum} placeholder="Order Number" />
               <SearchInput value={ls} onChange={setLs} placeholder="Loading Slip No." />
-              <Input type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />
-              <Input type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />
+              <DateInput aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <DateInput aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
           </div>
           <div className="mt-3 max-h-[calc(100vh-340px)] space-y-2 overflow-y-auto pr-1">
@@ -141,7 +141,7 @@ function CollectModal({ orderId, pending, onClose }: { orderId: number; pending:
         <Field label={`Amount Collected (pending ${inr(pending)})`}><Input id="cc-amount" type="number" value={amount} onChange={(e) => setAmount(e.target.value)} /></Field>
         {n > pending && <p className="text-xs text-red-700">That's more than the pending amount.</p>}
         <Field label="Receipt Number"><Input id="cc-receipt" value={receipt} onChange={(e) => setReceipt(e.target.value)} placeholder="Enter receipt number" /></Field>
-        <Field label="Collection Date"><Input id="cc-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label="Collection Date"><DateInput id="cc-date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
       </div>
     </Modal>
   );

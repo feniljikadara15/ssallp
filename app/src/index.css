@@ -4,3 +4,14 @@
 
 html, body, #root { height: 100%; }
 body { font-size: 12px; background: #f6f6f8; color: #0d0d0d; }
+
+@keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.pop-in { animation: pop-in 0.14s ease-out; }
+.fade-in { animation: fade-in 0.15s ease-out; }
+.toast-in { animation: toast-in 0.2s ease-out; }
+.toast-out { opacity: 0; transform: translateY(4px); transition: all 0.18s ease-in; }
+.skeleton { background: linear-gradient(90deg, #ececf0 0px, #f6f6f8 160px, #ececf0 320px); background-size: 800px 100%; animation: shimmer 1.4s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .pop-in, .fade-in, .toast-in, .skeleton { animation: none; } }

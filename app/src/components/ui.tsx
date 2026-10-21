@@ -1,6 +1,8 @@
 import clsx from "clsx";
-import { X, Search, ChevronLeft, ChevronRight, ChevronDown, Loader2 } from "lucide-react";
-import { useMemo, useState, type ReactNode, type InputHTMLAttributes, type SelectHTMLAttributes } from "react";
+import { X, Search, ChevronLeft, ChevronRight, ChevronDown, Loader2, XCircle, Check, Inbox } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode, type InputHTMLAttributes } from "react";
+import { usePopover } from "./pickers";
+export { Select, DateInput } from "./pickers";
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return <div className={clsx("rounded-xl2 border border-black/10 bg-white", className)}>{children}</div>;
@@ -82,16 +84,9 @@ export function Field({ label, children, className }: { label: string; children:
   );
 }
 
-const inputCls = "w-full min-w-0 rounded-lg border border-black/20 bg-white px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/20";
+export const inputCls =
+  "w-full min-w-0 rounded-lg border border-black/15 bg-white px-2.5 py-1.5 text-xs outline-none transition placeholder:text-gray-400 hover:border-black/30 focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400";
 export const Input = (p: InputHTMLAttributes<HTMLInputElement>) => <input {...p} className={clsx(inputCls, p.className)} />;
-export const Select = ({ options, placeholder, ...p }: SelectHTMLAttributes<HTMLSelectElement> & { options: { value: string | number; label: string }[]; placeholder?: string }) => (
-  <select {...p} className={clsx(inputCls, p.className)}>
-    {placeholder !== undefined && <option value="">{placeholder}</option>}
-    {options.map((o) => (
-      <option key={o.value} value={o.value}>{o.label}</option>
-    ))}
-  </select>
-);
 export const Textarea = (p: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...p} className={clsx(inputCls, p.className)} />;
 
 export function SearchInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
@@ -104,19 +99,30 @@ export function SearchInput({ value, onChange, placeholder }: { value: string; o
 }
 
 export function Modal({ open, onClose, title, children, footer, size = "md" }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; size?: "sm" | "md" | "lg" | "xl" }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8" onMouseDown={onClose}>
+    <div className="fade-in fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-secondary/40 p-4 backdrop-blur-[2px] sm:p-8" onMouseDown={onClose}>
       <div
-        className={clsx("w-full rounded-xl2 bg-white shadow-xl", { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-3xl", xl: "max-w-5xl" }[size])}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className={clsx("pop-in w-full rounded-xl2 bg-white shadow-2xl shadow-black/20", { sm: "max-w-sm", md: "max-w-lg", lg: "max-w-3xl", xl: "max-w-5xl" }[size])}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b px-5 py-3">
-          <h3 className="text-base font-medium text-secondary">{title}</h3>
-          <button onClick={onClose} className="rounded-full p-1 hover:bg-black/5"><X className="h-4 w-4" /></button>
+        <div className="flex items-center justify-between border-b border-black/5 px-5 py-3.5">
+          <h3 className="text-sm font-semibold text-secondary">{title}</h3>
+          <button aria-label="Close" onClick={onClose} className="rounded-lg p-1.5 text-gray-400 transition hover:bg-black/5 hover:text-secondary"><X className="h-4 w-4" /></button>
         </div>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t px-5 py-3">{footer}</div>}
+        {footer && <div className="flex justify-end gap-2 rounded-b-xl2 border-t border-black/5 bg-gray-50/60 px-5 py-3">{footer}</div>}
       </div>
     </div>
   );
@@ -186,7 +192,7 @@ export function DataTable<T>({ rows, columns, rowKey, pageSize = 12, onRowClick,
               </tr>
             ))}
             {!slice.length && (
-              <tr><td colSpan={columns.length} className="px-3 py-8 text-center text-gray-400">{empty}</td></tr>
+              <tr><td colSpan={columns.length} className="px-3 py-12 text-center text-gray-400"><Inbox className="mx-auto mb-2 h-5 w-5 text-gray-300" />{empty}</td></tr>
             )}
           </tbody>
         </table>
@@ -202,8 +208,13 @@ export function DataTable<T>({ rows, columns, rowKey, pageSize = 12, onRowClick,
   );
 }
 
-export function EmptyState({ text }: { text: string }) {
-  return <Card className="grid min-h-[300px] place-items-center p-8 text-sm font-medium text-gray-400">{text}</Card>;
+export function EmptyState({ text, icon }: { text: string; icon?: ReactNode }) {
+  return (
+    <Card className="flex min-h-[300px] flex-col items-center justify-center gap-3 p-8 text-center">
+      <div className="grid h-12 w-12 place-items-center rounded-full bg-gray-100 text-gray-400">{icon ?? <Inbox className="h-5 w-5" />}</div>
+      <div className="max-w-xs text-sm text-gray-500">{text}</div>
+    </Card>
+  );
 }
 
 export function KV({ label, value }: { label: string; value: ReactNode }) {
@@ -216,38 +227,75 @@ export function KV({ label, value }: { label: string; value: ReactNode }) {
 }
 
 let toastStack: HTMLDivElement | null = null;
+const TOAST_ICON = {
+  ok: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>',
+  warn: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+  error: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>',
+};
 export function toast(msg: string, tone: "ok" | "warn" | "error" = "ok") {
   if (!toastStack || !document.body.contains(toastStack)) {
     toastStack = document.createElement("div");
-    toastStack.className = "fixed bottom-5 left-4 right-4 z-[80] flex flex-col items-end gap-2 sm:left-auto sm:right-5 sm:max-w-sm";
+    toastStack.className = "pointer-events-none fixed bottom-5 left-4 right-4 z-[80] flex flex-col items-end gap-2 sm:left-auto sm:right-5 sm:w-96";
     document.body.appendChild(toastStack);
   }
   const el = document.createElement("div");
   el.setAttribute("role", tone === "error" ? "alert" : "status");
-  el.textContent = msg;
-  el.className = clsx("rounded-xl2 px-4 py-2 text-xs text-white shadow-lg", { ok: "bg-secondary", warn: "bg-warning", error: "bg-danger" }[tone]);
+  el.className = "toast-in pointer-events-auto flex w-full items-start gap-2.5 rounded-xl border border-black/5 bg-white px-3.5 py-3 text-xs text-secondary shadow-lg shadow-black/10";
+  const icon = document.createElement("span");
+  icon.className = clsx("mt-px shrink-0", { ok: "text-emerald-600", warn: "text-warning", error: "text-red-600" }[tone]);
+  icon.innerHTML = TOAST_ICON[tone];
+  const text = document.createElement("span");
+  text.className = "min-w-0 flex-1 break-words leading-relaxed";
+  text.textContent = msg;
+  const close = document.createElement("button");
+  close.setAttribute("aria-label", "Dismiss");
+  close.className = "shrink-0 rounded p-0.5 text-gray-400 hover:bg-black/5 hover:text-secondary";
+  close.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+  el.append(icon, text, close);
+  const remove = () => { el.classList.add("toast-out"); setTimeout(() => el.remove(), 180); };
+  close.addEventListener("click", remove);
   toastStack.appendChild(el);
-  setTimeout(() => el.remove(), tone === "ok" ? 2500 : 6000);
+  setTimeout(remove, tone === "ok" ? 3000 : 7000);
 }
 
 export const useToast = () => toast;
 
-export function Loading({ text = "Loading…" }: { text?: string }) {
+export function Loading({ text = "Loading…", variant = "list" }: { text?: string; variant?: "list" | "inline" }) {
+  if (variant === "inline")
+    return <div className="flex items-center justify-center gap-2 py-10 text-xs text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /> {text}</div>;
   return (
-    <div className="flex items-center justify-center gap-2 py-10 text-xs text-gray-400">
-      <Loader2 className="h-4 w-4 animate-spin" /> {text}
+    <div role="status" aria-label={text} className="space-y-3 py-2">
+      <span className="sr-only">{text}</span>
+      <div className="skeleton h-7 w-48 rounded-lg" />
+      <div className="grid gap-3 sm:grid-cols-3">
+        {[0, 1, 2].map((i) => <div key={i} className="skeleton h-20 rounded-xl2" />)}
+      </div>
+      <div className="space-y-2 rounded-xl2 border border-black/5 bg-white p-4">
+        {[0, 1, 2, 3, 4, 5].map((i) => <div key={i} className="skeleton h-8 rounded-md" style={{ opacity: 1 - i * 0.12 }} />)}
+      </div>
     </div>
   );
 }
 
 export function ErrorBox({ error }: { error: unknown }) {
-  return <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">{(error as Error)?.message ?? "Something went wrong"}</div>;
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-xs text-red-800">
+      <XCircle className="mt-px h-4 w-4 shrink-0" />
+      <span className="min-w-0 break-words">{(error as Error)?.message ?? "Something went wrong"}</span>
+    </div>
+  );
 }
 
 export function Checkbox({ label, checked, onChange, disabled }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
-    <label className={clsx("inline-flex items-center gap-2 text-xs", disabled && "opacity-50")}>
-      <input type="checkbox" className="h-3.5 w-3.5 accent-primary" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+    <label className={clsx("group inline-flex cursor-pointer select-none items-center gap-2 text-xs text-secondary", disabled && "cursor-not-allowed opacity-50")}>
+      <input type="checkbox" className="peer sr-only" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+      <span className={clsx(
+        "grid h-4 w-4 shrink-0 place-items-center rounded border transition peer-focus-visible:ring-2 peer-focus-visible:ring-primary/30",
+        checked ? "border-primary bg-primary text-white" : "border-black/25 bg-white group-hover:border-primary/60",
+      )}>
+        {checked && <Check className="h-3 w-3" strokeWidth={3} />}
+      </span>
       {label}
     </label>
   );
@@ -262,30 +310,50 @@ export function Combobox({ value, onChange, options, placeholder, id }: {
   id?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const close = useCallback(() => setOpen(false), []);
+  const { anchor, render } = usePopover<HTMLInputElement>(open, close);
   const shown = useMemo(() => {
     const t = value.label.trim().toLowerCase();
     return options.filter((o) => !t || value.id !== null || o.label.toLowerCase().includes(t) || o.hint?.toLowerCase().includes(t)).slice(0, 50);
   }, [options, value]);
+  const choose = (o: { id: string | number; label: string }) => { onChange({ id: o.id, label: o.label }); setOpen(false); };
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(shown.length - 1, a + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(0, a - 1)); }
+    else if (e.key === "Enter" && open && shown[active]) { e.preventDefault(); choose(shown[active]); }
+  };
   return (
     <div className="relative">
-      <Input
+      <input
+        ref={anchor}
         id={id}
+        role="combobox"
+        aria-expanded={open}
+        autoComplete="off"
         value={value.label}
         placeholder={placeholder}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        onChange={(e) => { onChange({ id: null, label: e.target.value }); setOpen(true); }}
+        onClick={() => setOpen(true)}
+        onKeyDown={onKey}
+        onChange={(e) => { onChange({ id: null, label: e.target.value }); setOpen(true); setActive(0); }}
+        className={clsx(inputCls, "pr-12")}
       />
-      {value.id === null && value.label.trim() && <span className="absolute right-2 top-1/2 -translate-y-1/2 rounded bg-primary-100 px-1.5 text-[10px] text-primary-700">new</span>}
-      {open && shown.length > 0 && (
-        <div className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border bg-white py-1 shadow-lg">
-          {shown.map((o) => (
-            <button type="button" key={o.id} onMouseDown={(e) => e.preventDefault()} onClick={() => { onChange({ id: o.id, label: o.label }); setOpen(false); }}
-              className={clsx("block w-full px-3 py-1.5 text-left text-xs hover:bg-primary-50", value.id === o.id && "bg-primary-50")}>
-              {o.label}{o.hint && <span className="ml-2 text-gray-400">{o.hint}</span>}
-            </button>
+      {value.id === null && value.label.trim()
+        ? <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-primary-100 px-1.5 py-px text-[10px] font-medium text-primary-700">New</span>
+        : <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />}
+      {shown.length > 0 && render(
+        <div role="listbox" className="overflow-y-auto p-1">
+          {shown.map((o, i) => (
+            <div key={o.id} role="option" aria-selected={value.id === o.id}
+              onMouseEnter={() => setActive(i)} onMouseDown={(e) => e.preventDefault()} onClick={() => choose(o)}
+              className={clsx("flex cursor-pointer items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-secondary", i === active && "bg-primary-50", value.id === o.id && "font-medium text-primary-700")}>
+              <span className="min-w-0 flex-1 truncate">{o.label}{o.hint && <span className="ml-2 font-normal text-gray-400">{o.hint}</span>}</span>
+              {value.id === o.id && <Check className="h-3.5 w-3.5 shrink-0 text-primary" />}
+            </div>
           ))}
-        </div>
+        </div>,
       )}
     </div>
   );
@@ -299,9 +367,9 @@ export function Menu({ label, items, variant = "outline", icon, disabled }: { la
         {label} <ChevronDown className="h-3.5 w-3.5" />
       </Button>
       {open && (
-        <div className="absolute right-0 z-20 mt-1 min-w-[220px] rounded-lg border bg-white py-1 shadow-lg">
+        <div className="pop-in absolute right-0 z-30 mt-1 min-w-[220px] rounded-xl border border-black/10 bg-white p-1 shadow-xl shadow-black/10" onKeyDown={(e) => e.key === "Escape" && setOpen(false)}>
           {items.map((it) => (
-            <button key={it.label} disabled={it.disabled} onClick={() => { setOpen(false); it.onClick(); }} className="block w-full px-3 py-2 text-left text-xs hover:bg-primary-50 disabled:opacity-40">
+            <button key={it.label} disabled={it.disabled} onClick={() => { setOpen(false); it.onClick(); }} className="block w-full rounded-md px-2.5 py-2 text-left text-xs text-secondary hover:bg-primary-50 disabled:pointer-events-none disabled:opacity-40">
               {it.label}
             </button>
           ))}
@@ -315,19 +383,21 @@ export function Menu({ label, items, variant = "outline", icon, disabled }: { la
 export function ask(message: string, confirmLabel = "Confirm"): Promise<boolean> {
   return new Promise((resolve) => {
     const root = document.createElement("div");
-    root.className = "fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4";
+    root.className = "fade-in fixed inset-0 z-[70] flex items-center justify-center bg-secondary/40 p-4 backdrop-blur-[2px]";
+    root.setAttribute("role", "alertdialog");
     root.innerHTML = `
-      <div class="w-full max-w-sm rounded-xl2 bg-white p-5 shadow-xl">
-        <p class="text-sm text-secondary"></p>
+      <div class="pop-in w-full max-w-sm rounded-xl2 bg-white p-5 shadow-2xl shadow-black/20">
+        <p class="text-sm leading-relaxed text-secondary"></p>
         <div class="mt-5 flex justify-end gap-2">
-          <button data-v="0" class="rounded-xl2 border border-black/20 px-3.5 py-1.5 text-xs font-medium text-secondary hover:bg-black/5">Cancel</button>
-          <button data-v="1" class="rounded-xl2 bg-danger px-3.5 py-1.5 text-xs font-medium text-white hover:opacity-90"></button>
+          <button data-v="0" class="rounded-lg border border-black/15 bg-white px-3.5 py-1.5 text-xs font-medium text-secondary hover:bg-black/5">Cancel</button>
+          <button data-v="1" class="rounded-lg bg-danger px-3.5 py-1.5 text-xs font-medium text-white hover:opacity-90"></button>
         </div>
       </div>`;
     root.querySelector("p")!.textContent = message;
     root.querySelector('[data-v="1"]')!.textContent = confirmLabel;
     const done = (v: boolean) => { root.remove(); resolve(v); };
     root.addEventListener("mousedown", (e) => { if (e.target === root) done(false); });
+    root.addEventListener("keydown", (e) => { if (e.key === "Escape") done(false); });
     root.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => done(b.dataset.v === "1")));
     document.body.appendChild(root);
     (root.querySelector('[data-v="1"]') as HTMLButtonElement).focus();

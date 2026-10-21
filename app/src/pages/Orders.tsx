@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Download, Trash2, RotateCcw, FileText, Receipt, Truck, CheckCircle2, Send, XCircle, PackagePlus, Plus, Eye, ExternalLink, Save } from "lucide-react";
 import { api, patch, post, useAction, useGet, type Health } from "../api";
 import { exportRows, fmtDate, includes, inRange, inr, stamp, today } from "../format";
-import { ask, Badge, Button, Card, EmptyState, ErrorBox, Field, Input, KV, Loading, Menu, Modal, PageHeader, SearchInput, Select, Tabs, toast } from "../components/ui";
+import { ask, Badge, Button, Card, EmptyState, ErrorBox, Field, Input, KV, Loading, Menu, Modal, PageHeader, SearchInput, Select, Tabs, toast, DateInput } from "../components/ui";
 import ListItem, { revealDetail } from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
@@ -57,8 +57,8 @@ export default function Orders() {
             <div className="grid grid-cols-2 gap-2">
               <SearchInput value={num} onChange={setNum} placeholder="Order Number" />
               <SearchInput value={ls} onChange={setLs} placeholder="Loading Slip No." />
-              {tab !== "5" && <Input type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />}
-              {tab !== "5" && <Input type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />}
+              {tab !== "5" && <DateInput aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />}
+              {tab !== "5" && <DateInput aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />}
             </div>
           </div>
           <div className="mt-3 max-h-[calc(100vh-340px)] space-y-2 overflow-y-auto pr-1">
@@ -269,7 +269,7 @@ function LoadingSlipsModal({ order: o, onClose }: { order: any; onClose: () => v
     <Modal open onClose={onClose} title="Manage Loading Slips" size="lg">
       {editable && (
         <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl bg-gray-50 p-3">
-          <Field label="Loading slip date"><Input id="ls-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Loading slip date"><DateInput id="ls-date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
           <Button busy={create.isPending} disabled={!o.warehouse_id} title={!o.warehouse_id ? "Save a warehouse on the order first" : undefined} icon={<PackagePlus className="h-3.5 w-3.5" />}
             onClick={async () => (!rows.length || (await ask("Create a new set of loading slips? The current ones will be replaced.", "Create"))) && create.mutate(undefined)}>
             Create Loading Slips

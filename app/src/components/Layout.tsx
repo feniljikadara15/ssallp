@@ -6,6 +6,7 @@ import {
   Tag, Users, Package, ExternalLink, Menu, X, LogOut,
 } from "lucide-react";
 import { post, useGet, type Health, type Session } from "../api";
+import { Logo } from "./Logo";
 
 const NAV: { section: string; items: { to: string; label: string; icon: React.ElementType }[] }[] = [
   { section: "Dashboard", items: [{ to: "/", label: "Dashboard", icon: LayoutDashboard }] },
@@ -38,8 +39,11 @@ function Sidebar({ onNavigate, session }: { onNavigate?: () => void; session: Se
   return (
     <div className="flex h-full flex-col bg-secondary text-white">
       <div className="flex items-center gap-3 px-5 py-5">
-        <div className="grid h-10 w-10 place-items-center rounded-xl bg-primary text-lg font-bold">S</div>
-        <div className="text-sm font-medium leading-tight">Sambhavnath<br />Agencies LLP</div>
+        <Logo className="h-10 w-10 shrink-0" />
+        <div className="min-w-0 leading-tight">
+          <div className="truncate text-sm font-semibold">Sambhavnath Agencies</div>
+          <div className="text-[11px] text-white/50">Order Management</div>
+        </div>
       </div>
       <nav className="flex-1 overflow-y-auto px-3 pb-4">
         {NAV.map((g) => (

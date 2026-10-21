@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronLeft, ChevronRight, Eye, Package } from "lucide-react";
 import { useGet } from "../api";
 import { fmtDate, inr, ORDER_STATUS } from "../format";
-import { Badge, Button, Card, ErrorBox, Input, Loading, PageHeader, SearchInput, Select, Stat } from "../components/ui";
+import { Badge, Button, Card, ErrorBox, Input, Loading, PageHeader, SearchInput, Select, Stat, DateInput } from "../components/ui";
 
 const PAGE = 15;
 
@@ -32,8 +32,8 @@ export default function LoadingSlips() {
           <SearchInput value={q} onChange={reset(setQ)} placeholder="Search by Loading Slip Number" />
           <Select value={brand} onChange={(e) => reset(setBrand)(e.target.value)} placeholder="Select a Brand" options={[...new Set((products.data ?? []).map((p) => p.brand).filter(Boolean))].sort().map((b) => ({ value: b, label: b }))} />
           <Select value={wh} onChange={(e) => reset(setWh)(e.target.value)} placeholder="Select a warehouse" options={(warehouses.data ?? []).map((w) => ({ value: w.warehouse_id, label: w.name }))} />
-          <Input type="date" aria-label="From date" value={from} onChange={(e) => reset(setFrom)(e.target.value)} />
-          <Input type="date" aria-label="To date" value={to} onChange={(e) => reset(setTo)(e.target.value)} />
+          <DateInput aria-label="From date" value={from} onChange={(e) => reset(setFrom)(e.target.value)} />
+          <DateInput aria-label="To date" value={to} onChange={(e) => reset(setTo)(e.target.value)} />
         </div>
         {error && <div className="p-3"><ErrorBox error={error} /></div>}
         {isLoading ? <Loading /> : (

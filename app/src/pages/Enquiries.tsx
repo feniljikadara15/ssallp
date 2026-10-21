@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, RotateCcw, ArrowRightCircle, Send, X } from "lucide-react";
 import { api, patch, post, useAction, useGet } from "../api";
 import { fmtDate, includes, inRange, inr, today } from "../format";
-import { ask, Badge, Button, Card, Checkbox, Combobox, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Select, Tabs, Textarea, toast } from "../components/ui";
+import { ask, Badge, Button, Card, Checkbox, Combobox, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Select, Tabs, Textarea, toast, DateInput } from "../components/ui";
 import ListItem, { revealDetail } from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
@@ -35,8 +35,8 @@ export default function Enquiries() {
             <SearchInput value={q} onChange={setQ} placeholder="Search by Customer" />
             {tab !== "5" && (
               <div className="grid grid-cols-2 gap-2">
-                <Input type="date" aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />
-                <Input type="date" aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />
+                <DateInput aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />
+                <DateInput aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />
               </div>
             )}
           </div>
@@ -281,7 +281,7 @@ function NewEnquiryModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <Field label="City"><Input id="del-city" value={delivery.city} onChange={(e) => setDelivery({ ...delivery, city: e.target.value })} /></Field>
         <Field label="State"><Select id="del-state" value={delivery.state} onChange={(e) => setDelivery({ ...delivery, state: e.target.value })} options={stateOptions} placeholder="Select an option" /></Field>
         <Field label="Google Maps Link"><Input id="del-map" value={delivery.mapsLink} onChange={(e) => setDelivery({ ...delivery, mapsLink: e.target.value })} placeholder="Paste maps link here" /></Field>
-        <Field label="Delivery Date"><Input id="del-date" type="date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} /></Field>
+        <Field label="Delivery Date"><DateInput id="del-date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} /></Field>
       </div>
 
       <H>Enquiry Items</H>
