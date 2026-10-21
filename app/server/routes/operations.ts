@@ -27,9 +27,48 @@ route("GET", "/api/dashboard", async () => {
       (SELECT COUNT(*) FROM orders) AS total_orders, ${pct("orders")} AS orders_pct,
       (SELECT COUNT(*) FROM enquiries) AS total_enquiries, ${pct("enquiries")} AS enquiries_pct,
       (SELECT COUNT(*) FROM customers) AS total_customers, ${pct("customers")} AS customers_pct`);
-  const chart = await q(`SELECT DATE_TRUNC('month', created_at) AS month_start, TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') AS month_label, COUNT(*)::int AS order_count
-      FROM orders WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '12 months' GROUP BY 1 ORDER BY 1`);
-  return { stats, chart };
+
+  // India time month boundaries
+  const MONTH = `DATE_TRUNC('month', (NOW() AT TIME ZONE 'Asia/Kolkata'))`;
+  const billed = `o.is_active = TRUE AND o.order_status IN ('2', '3')`;
+  const kpis = await one(`SELECT
+      (SELECT COUNT(*) FROM enquiries WHERE is_active = TRUE AND enquiry_status = '0')::int AS open_enquiries,
+      (SELECT COUNT(*) FROM orders WHERE is_active = TRUE AND order_status = '1')::int AS ongoing_orders,
+      (SELECT COUNT(*) FROM orders WHERE is_active = TRUE AND order_status = '2')::int AS in_transit,
+      (SELECT COUNT(*) FROM orders WHERE is_active = TRUE AND order_status = '3' AND (updated_at AT TIME ZONE 'Asia/Kolkata') >= ${MONTH})::int AS delivered_month,
+      (SELECT COALESCE(SUM(o.total_amount), 0) FROM orders o WHERE ${billed} AND (o.order_date AT TIME ZONE 'Asia/Kolkata') >= ${MONTH}) AS sales_month,
+      (SELECT COALESCE(SUM(o.total_amount), 0) FROM orders o WHERE ${billed} AND (o.order_date AT TIME ZONE 'Asia/Kolkata') >= ${MONTH} - INTERVAL '1 month'
+          AND (o.order_date AT TIME ZONE 'Asia/Kolkata') < ${MONTH} - INTERVAL '1 month' + ((NOW() AT TIME ZONE 'Asia/Kolkata') - ${MONTH})) AS sales_prev_to_date,
+      (SELECT COUNT(*) FROM orders o WHERE ${billed} AND (o.order_date AT TIME ZONE 'Asia/Kolkata') >= ${MONTH})::int AS billed_month`);
+  const cash = await one(`SELECT COUNT(*)::int AS count, COALESCE(SUM(o.total_amount - COALESCE(cc.paid, 0)), 0) AS due
+      FROM orders o LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM cash_collected WHERE is_active = TRUE GROUP BY 1) cc ON cc.order_id = o.order_id
+     WHERE o.is_active = TRUE AND o.payment_type = 'cash' AND o.order_status IN ('2', '3') AND COALESCE(cc.paid, 0) < o.total_amount`);
+
+  // Work waiting on someone
+  const attention = await q(`
+    (SELECT 'no_slip' AS kind, o.order_id AS id, c.name AS customer_name, o.order_date AS since, o.total_amount
+       FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id
+      WHERE o.is_active = TRUE AND o.order_status = '1' AND o.loading_slip_id IS NULL ORDER BY o.order_date LIMIT 5)
+    UNION ALL
+    (SELECT 'transit' AS kind, o.order_id, c.name, o.updated_at, o.total_amount
+       FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id
+      WHERE o.is_active = TRUE AND o.order_status = '2' AND o.updated_at < NOW() - INTERVAL '2 days' ORDER BY o.updated_at LIMIT 5)
+    UNION ALL
+    (SELECT 'enquiry' AS kind, e.enquiry_id, c.name, e.enquiry_date, NULL
+       FROM enquiries e LEFT JOIN customers c ON c.customer_id = e.customer_id
+      WHERE e.is_active = TRUE AND e.enquiry_status = '0' AND e.enquiry_date < NOW() - INTERVAL '2 days' ORDER BY e.enquiry_date LIMIT 5)`);
+  const attentionCounts = await one(`SELECT
+      (SELECT COUNT(*) FROM orders WHERE is_active = TRUE AND order_status = '1' AND loading_slip_id IS NULL)::int AS no_slip,
+      (SELECT COUNT(*) FROM orders WHERE is_active = TRUE AND order_status = '2' AND updated_at < NOW() - INTERVAL '2 days')::int AS transit,
+      (SELECT COUNT(*) FROM enquiries WHERE is_active = TRUE AND enquiry_status = '0' AND enquiry_date < NOW() - INTERVAL '2 days')::int AS enquiry`);
+
+  const chart = await q(`SELECT DATE_TRUNC('month', created_at) AS month_start, TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YYYY') AS month_label, COUNT(*)::int AS order_count,
+        COALESCE(SUM(total_amount) FILTER (WHERE order_status IN ('2', '3')), 0) AS sales
+      FROM orders WHERE is_active = TRUE AND created_at >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '11 months' GROUP BY 1 ORDER BY 1`);
+  const recent = await q(`SELECT o.order_id, o.order_status, o.order_date, o.total_amount, o.payment_type, c.name AS customer_name,
+        (SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) FROM order_items oi WHERE oi.order_id = o.order_id AND oi.is_active = TRUE) AS items_value
+      FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id WHERE o.is_active = TRUE AND o.order_status <> '5' ORDER BY o.order_date DESC LIMIT 6`);
+  return { stats, kpis, cash, attention, attentionCounts, chart, recent };
 });
 
 // ------------------------------------------------------------ enquiries
@@ -37,8 +76,10 @@ route("GET", "/api/dashboard", async () => {
 // getEnquiries (+ customer name for the list)
 route("GET", "/api/enquiries", async () =>
   q(`SELECT e.enquiry_id, e.customer_id, e.enquiry_date, e.enquiry_status, e.type, e.billing_address_id, e.delivery_address_id, e.site_id,
-            e.remarks, e.warehouse_id, e.transporter_id, e.delivery_date, c.name AS customer_name
-       FROM enquiries e LEFT JOIN customers c ON c.customer_id = e.customer_id
+            e.remarks, e.warehouse_id, e.transporter_id, e.delivery_date, c.name AS customer_name, s.site_name,
+            (SELECT COUNT(*)::int FROM enquiry_items ei WHERE ei.enquiry_id = e.enquiry_id AND ei.is_active = TRUE) AS item_count,
+            (SELECT COALESCE(SUM(ei.quantity * ei.unit_price), 0) FROM enquiry_items ei WHERE ei.enquiry_id = e.enquiry_id AND ei.is_active = TRUE) AS items_value
+       FROM enquiries e LEFT JOIN customers c ON c.customer_id = e.customer_id LEFT JOIN sites s ON s.site_id = e.site_id
       WHERE e.is_active = TRUE ORDER BY e.enquiry_date DESC`));
 
 route("GET", "/api/enquiries/:id", async ({ params }) => {
@@ -159,10 +200,11 @@ route("GET", "/api/zoho/contacts/:id", async ({ params }) => {
 // getOrders + getAllLoadingSlipItems (for list labels and loading slip search)
 route("GET", "/api/orders", async () =>
   q(`SELECT o.order_id, o.order_number, o.enquiry_id, o.order_date, o.payment_type, o.order_status, o.total_amount, o.customer_id, o.loading_slip_id,
-            o.invoice_id, c.name AS customer_name,
+            o.invoice_id, c.name AS customer_name, s.site_name,
+            (SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) FROM order_items oi WHERE oi.order_id = o.order_id AND oi.is_active = TRUE) AS items_value,
             (SELECT lsi.loading_slip_file_name FROM loading_slip_items lsi WHERE lsi.loading_slip_id = o.loading_slip_id ORDER BY lsi.loading_slip_item_id LIMIT 1) AS loading_slip_file_name,
             (SELECT ARRAY_AGG(lsi.loading_slip_number::text) FROM loading_slips ls JOIN loading_slip_items lsi ON lsi.loading_slip_id = ls.loading_slip_id WHERE ls.order_id = o.order_id) AS loading_slip_numbers
-       FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id
+       FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN sites s ON s.site_id = o.site_id
       WHERE o.is_active = TRUE ORDER BY o.order_date DESC`));
 
 async function loadingSlipItems(orderId: number) {
@@ -186,9 +228,13 @@ route("GET", "/api/orders/:id", async (req) => {
             e.delivery_date, e.enquiry_date, s.site_name, s.site_person_name, s.site_person_contact,
             row_to_json(b) AS billing_address, row_to_json(sa) AS shipping_address,
             i.zb_invoice_id, i.zb_invoice_number, i.zb_invoice_url,
-            (SELECT COALESCE(SUM(amount), 0) FROM cash_collected cc WHERE cc.order_id = o.order_id AND cc.is_active = TRUE) AS total_collected
+            (SELECT COALESCE(SUM(amount), 0) FROM cash_collected cc WHERE cc.order_id = o.order_id AND cc.is_active = TRUE) AS total_collected,
+            v.vehicle_number, t.name AS transporter_name, w.name AS warehouse_name
        FROM orders o
        LEFT JOIN customers c ON c.customer_id = o.customer_id
+       LEFT JOIN vehicles v ON v.vehicle_id = o.vehicle_id
+       LEFT JOIN transporters t ON t.transporter_id = o.transporter_id
+       LEFT JOIN warehouses w ON w.warehouse_id = o.warehouse_id
        LEFT JOIN enquiries e ON e.enquiry_id = o.enquiry_id
        LEFT JOIN sites s ON s.site_id = o.site_id
        LEFT JOIN addresses b ON b.address_id = o.billing_address_id

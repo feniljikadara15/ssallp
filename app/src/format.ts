@@ -62,4 +62,14 @@ function download(blob: Blob, filename: string) {
 
 // Enquiry and order status codes stored in the database.
 export const ENQUIRY_STATUS: Record<string, string> = { "0": "Ongoing", "1": "Past", "5": "Deleted" };
-export const ORDER_STATUS: Record<string, string> = { "1": "Ongoing", "2": "In-Transit", "3": "Delivered", "5": "Deleted" };
+export const ORDER_STATUS: Record<string, string> = { "1": "Ongoing", "2": "In transit", "3": "Delivered", "5": "Deleted" };
+
+// Compact rupees for cards and chart axes: ₹950, ₹12.4K, ₹9.6L, ₹1.2Cr.
+export function inrShort(n: unknown) {
+  const v = Number(n || 0), a = Math.abs(v);
+  const f = (x: number) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2)).replace(/\.0+$|(\.\d*[1-9])0+$/, "$1");
+  if (a >= 1e7) return `₹${f(v / 1e7)}Cr`;
+  if (a >= 1e5) return `₹${f(v / 1e5)}L`;
+  if (a >= 1e3) return `₹${f(v / 1e3)}K`;
+  return `₹${Math.round(v)}`;
+}

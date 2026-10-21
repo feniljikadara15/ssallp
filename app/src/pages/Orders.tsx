@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Download, Trash2, RotateCcw, FileText, Receipt, Truck, CheckCircle2, Send, XCircle, PackagePlus, Plus, Eye, ExternalLink, Save } from "lucide-react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import clsx from "clsx";
+import { Download, Trash2, RotateCcw, FileText, Receipt, Truck, CheckCircle2, Send, XCircle, PackagePlus, Plus, Eye, Save, Check, UserRound, MapPin, Boxes, ClipboardList, Phone } from "lucide-react";
 import { api, patch, post, useAction, useGet, type Health } from "../api";
 import { exportRows, fmtDate, includes, inRange, inr, stamp, today } from "../format";
-import { ask, Badge, Button, Card, EmptyState, ErrorBox, Field, Input, KV, Loading, Menu, Modal, PageHeader, SearchInput, Select, Tabs, toast, DateInput } from "../components/ui";
+import { ask, Badge, Button, Card, EmptyState, ErrorBox, Field, Input, KV, Loading, Menu, Modal, PageHeader, SearchInput, Section, Select, Tabs, toast, DateInput } from "../components/ui";
 import ListItem, { revealDetail } from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
 type Tab = "1" | "2" | "3" | "5";
 const TABS: { value: Tab; label: string }[] = [
-  { value: "1", label: "Ongoing" }, { value: "2", label: "In-Transit" }, { value: "3", label: "Delivered" }, { value: "5", label: "Deleted" },
+  { value: "1", label: "Ongoing" }, { value: "2", label: "In transit" }, { value: "3", label: "Delivered" }, { value: "5", label: "Deleted" },
 ];
 const EXPORT_NAME: Record<string, string> = { "1": "Ongoing Orders", "2": "In Transit Orders", "3": "Delivered Orders" };
 
@@ -23,6 +24,18 @@ export default function Orders() {
   const [to, setTo] = useState("");
   const [sel, setSel] = useState<number | null>(null);
   const [exporting, setExporting] = useState(false);
+
+  // Links from search and the dashboard: ?id=<order> opens it, ?tab=<status> picks a tab.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    const t = params.get("tab") as Tab | null;
+    if (t && TABS.some((x) => x.value === t)) setTab(t);
+    const id = Number(params.get("id"));
+    if (!id || !orders.data) return;
+    const o = orders.data.find((x) => x.order_id === id);
+    if (o) { setTab(o.order_status); setParty(""); setNum(""); setLs(""); setFrom(""); setTo(""); setSel(id); revealDetail(); }
+    setParams({}, { replace: true });
+  }, [params, orders.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const list = useMemo(() => {
     // An order number or loading slip search finds the order regardless of the date filter.
@@ -46,42 +59,50 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader title="Orders">
+      <PageHeader title="Orders" description="Dispatch, bill and deliver confirmed orders">
         {tab !== "5" && <Button variant="outline" busy={exporting} icon={<Download className="h-3.5 w-3.5" />} onClick={exportCsv} title={`Export ${EXPORT_NAME[tab]}`}>Export</Button>}
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
-        <Card className="p-3">
+      <div className="grid items-start gap-5 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
+        <Card className="flex flex-col p-3 lg:sticky lg:top-0 lg:max-h-[calc(100vh-120px)]">
           <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (orders.data ?? []).filter((o) => o.order_status === t.value).length }))} />
           <div className="mt-3 space-y-2">
-            <SearchInput value={party} onChange={setParty} placeholder="Search by Party Name" />
+            <SearchInput value={party} onChange={setParty} placeholder="Search customer" />
             <div className="grid grid-cols-2 gap-2">
-              <SearchInput value={num} onChange={setNum} placeholder="Order Number" />
-              <SearchInput value={ls} onChange={setLs} placeholder="Loading Slip No." />
-              {tab !== "5" && <DateInput aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />}
-              {tab !== "5" && <DateInput aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />}
+              <SearchInput value={num} onChange={setNum} placeholder="Order no." />
+              <SearchInput value={ls} onChange={setLs} placeholder="Loading slip no." />
+              {tab !== "5" && <DateInput aria-label="From date" placeholder="From" value={from} onChange={(e) => setFrom(e.target.value)} />}
+              {tab !== "5" && <DateInput aria-label="To date" placeholder="To" value={to} onChange={(e) => setTo(e.target.value)} />}
             </div>
           </div>
-          <div className="mt-3 max-h-[calc(100vh-340px)] space-y-2 overflow-y-auto pr-1">
-            {orders.isLoading && <Loading />}
+          <div className="mt-3 flex items-center justify-between px-1 text-2xs text-gray-500">
+            <span>{list.length} order{list.length === 1 ? "" : "s"}</span>
+            {(party || num || ls || from || to) && <button className="font-medium text-primary hover:underline" onClick={() => { setParty(""); setNum(""); setLs(""); setFrom(""); setTo(""); }}>Clear filters</button>}
+          </div>
+          <div className="-mx-1 mt-1 min-h-[200px] flex-1 space-y-0.5 overflow-y-auto px-1">
+            {orders.isLoading && <Loading variant="inline" />}
             {orders.error && <ErrorBox error={orders.error} />}
             {list.map((o) => (
               <ListItem key={o.order_id} active={sel === o.order_id} onClick={() => { setSel(o.order_id); revealDetail(); }}
-                title={`OD - ${o.customer_name ?? ""} - ${o.order_id}`}
-                subtitle={o.loading_slip_file_name ? <b className="text-secondary">{o.loading_slip_file_name}</b> : o.order_number}
-                tag={o.payment_type && <Badge tone={o.payment_type === "cash" ? "yellow" : "blue"}>{o.payment_type}</Badge>}
-                right={fmtDate(o.order_date)} />
+                title={o.customer_name ?? "—"}
+                subtitle={[`#${o.order_id}`, o.site_name].filter(Boolean).join(" · ")}
+                tag={(o.payment_type || o.loading_slip_file_name) && <>
+                  {o.loading_slip_file_name && <Badge tone="gray">{o.loading_slip_file_name}</Badge>}
+                  {o.payment_type && <Badge tone={o.payment_type === "cash" ? "yellow" : "blue"}>{o.payment_type === "cash" ? "Cash" : "Invoice"}</Badge>}
+                </>}
+                right={fmtDate(o.order_date)}
+                rightSub={inr(o.total_amount ?? o.items_value)} />
             ))}
-            {orders.data && !list.length && <div className="py-8 text-center text-xs text-gray-400">No orders</div>}
+            {orders.data && !list.length && <div className="py-10 text-center text-xs text-gray-400">No orders match these filters</div>}
           </div>
         </Card>
-        <div id="detail-panel" className="min-w-0 scroll-mt-4">{sel ? <OrderDetail id={sel} onMoved={(t) => setTab(t)} /> : <EmptyState text="Select an order to view details" />}</div>
+        <div id="detail-panel" className="min-w-0 scroll-mt-4">{sel ? <OrderDetail id={sel} onMoved={(t) => setTab(t)} /> : <EmptyState icon={<ClipboardList className="h-5 w-5" />} text="Pick an order on the left to see its items, transport and billing." />}</div>
       </div>
     </div>
   );
 }
 
 const STATUS_TONE: Record<string, "orange" | "blue" | "green" | "red"> = { "1": "orange", "2": "blue", "3": "green", "5": "red" };
-const STATUS_LABEL: Record<string, string> = { "1": "Ongoing", "2": "In-Transit", "3": "Delivered", "5": "Deleted" };
+const STATUS_LABEL: Record<string, string> = { "1": "Ongoing", "2": "In transit", "3": "Delivered", "5": "Deleted" };
 
 function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void }) {
   const navigate = useNavigate();
@@ -100,7 +121,7 @@ function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void })
   const sendOtp = useAction(() => post(`orders/${id}/send-otp`), []);
   const saveItems = useAction((items: Record<string, unknown>[]) => patch(`orders/${id}/items`, { items }), ["orders"]);
 
-  if (isLoading) return <Card className="p-5"><Loading /></Card>;
+  if (isLoading) return <Card className="p-5"><Loading variant="inline" /></Card>;
   if (error || !o) return <Card className="p-5"><ErrorBox error={error} /></Card>;
 
   const status = o.order_status as string;
@@ -114,95 +135,143 @@ function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void })
   };
 
   return (
-    <Card className="min-w-0 p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-medium text-secondary">Order #{o.order_id}</h2>
-          <div className="text-xs font-bold text-gray-600">{o.order_number}</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            <Badge tone={STATUS_TONE[status]}>{STATUS_LABEL[status] ?? status}</Badge>
-            {o.payment_type && <Badge tone={isCash ? "yellow" : "blue"}>{o.payment_type}</Badge>}
-            {o.zb_invoice_number && <Badge>Invoice {o.zb_invoice_number}</Badge>}
+    <div className="min-w-0 space-y-4">
+      <Card className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-2xs font-medium text-gray-500">
+              <span>Order #{o.order_id}</span>{o.order_number && <><span className="text-gray-300">/</span><span>{o.order_number}</span></>}
+              {o.enquiry_id && <><span className="text-gray-300">/</span><span>From EN-{o.enquiry_id}</span></>}
+            </div>
+            <h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-secondary">{o.customer_name}</h2>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <Badge dot tone={STATUS_TONE[status]}>{STATUS_LABEL[status] ?? status}</Badge>
+              {o.payment_type && <Badge tone={isCash ? "yellow" : "blue"}>{isCash ? "Cash bill" : "Invoice"}</Badge>}
+              {o.zb_invoice_number && <Badge>Invoice {o.zb_invoice_number}</Badge>}
+              {o.tcs_status && <Badge tone="purple">TCS</Badge>}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xs font-medium text-gray-500">{status === "1" ? "Order value" : "Total amount"}</div>
+            <div className="tabular text-xl font-semibold tracking-tight text-secondary">{inr(o.total_amount ?? total)}</div>
+            <div className="text-2xs text-gray-500">{o.items.length} item{o.items.length === 1 ? "" : "s"} · {fmtDate(o.order_date)}</div>
           </div>
         </div>
-        <div className="flex flex-wrap justify-end gap-2">
-          {status === "5" && <Button variant="success" busy={restore.isPending} icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => restore.mutate(undefined)}>Restore</Button>}
+        {status === "5" ? (
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-800"><Trash2 className="h-3.5 w-3.5" /> This order is deleted. Restore it to work on it again.</div>
+        ) : <Stepper order={o} />}
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-black/[0.05] pt-4">
+          {status === "5" && <Button variant="success" busy={restore.isPending} icon={<RotateCcw />} onClick={() => restore.mutate(undefined)}>Restore order</Button>}
           {status === "1" && (
             <>
-              <Button variant="danger" busy={del.isPending} icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => (await ask(`Delete order #${id}?`, "Delete")) && del.mutate(undefined)}>Delete Order</Button>
               {cashMode ? (
-                <Button variant="secondary" busy={cashBill.isPending} disabled={o.loading_slip_count !== 1} title={o.loading_slip_count !== 1 ? "Create the loading slips first" : undefined}
-                  icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => cashBill.mutate(undefined)}>Generate Cash Bill</Button>
+                <Button busy={cashBill.isPending} disabled={o.loading_slip_count !== 1} title={o.loading_slip_count !== 1 ? "Create the loading slips first" : undefined}
+                  icon={<Receipt />} onClick={() => cashBill.mutate(undefined)}>Generate cash bill</Button>
               ) : (
-                <Button variant="secondary" busy={invoice.isPending} disabled={o.loading_slip_count < 1 || !o.vehicle_id || !o.delivery_terms}
+                <Button busy={invoice.isPending} disabled={o.loading_slip_count < 1 || !o.vehicle_id || !o.delivery_terms}
                   title={o.loading_slip_count < 1 ? "Create the loading slips first" : !o.vehicle_id || !o.delivery_terms ? "Save the vehicle and delivery terms first" : undefined}
-                  icon={<FileText className="h-3.5 w-3.5" />} onClick={() => invoice.mutate(undefined)}>Generate Invoice</Button>
+                  icon={<FileText />} onClick={() => invoice.mutate(undefined)}>Generate invoice</Button>
               )}
+              {(cashMode ? o.loading_slip_count !== 1 : o.loading_slip_count < 1 || !o.vehicle_id || !o.delivery_terms) && (
+                <span className="text-2xs text-gray-500">{o.loading_slip_count < 1 ? "Create loading slips to bill" : cashMode ? "Needs exactly one loading slip" : "Save the vehicle and delivery terms to bill"}</span>
+              )}
+              {cashMode
+                ? <Button variant="outline" onClick={() => setCashMode(false)}>Bill by invoice instead</Button>
+                : <Button variant="outline" icon={<Receipt />} onClick={() => setModal("cash")}>Bill as cash</Button>}
+              <div className="flex-1" />
+              <Button variant="danger" busy={del.isPending} icon={<Trash2 />} onClick={async () => (await ask(`Delete order #${id}? You can restore it later from the Deleted tab.`, "Delete")) && del.mutate(undefined)}>Delete</Button>
+            </>
+          )}
+          {status === "2" && <Button variant="success" icon={<CheckCircle2 />} onClick={() => setModal("deliver")}>Confirm delivery</Button>}
+          {(status === "2" || status === "3") && o.zb_invoice_id && (
+            <>
+              <Menu label="Send invoice" variant={status === "2" ? "outline" : "primary"} icon={<Send />} disabled={sendInvoice.isPending} items={[
+                { label: "To customer (with delivery OTP)", onClick: () => sendInvoice.mutate("customer") },
+                { label: "To customer (with OTP) and transporter", onClick: () => sendInvoice.mutate("customer_transporter") },
+              ]} />
+              <Menu label="View" icon={<Eye />} items={[
+                { label: "Invoice PDF", onClick: viewInvoice },
+                { label: "E-invoice in Zoho Books", onClick: () => window.open(`${zohoApp}/invoices/${o.zb_invoice_id}`, "_blank", "noopener") },
+                ...(total >= 50000 ? [{ label: "E-way bill", onClick: () => window.open(`${zohoApp}/ewaybills/new?entity_id=${o.zb_invoice_id}&entity_type=invoice`, "_blank", "noopener") }] : []),
+              ]} />
             </>
           )}
           {(status === "2" || status === "3") && isCash && (
-            <Button variant="secondary" icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => navigate(`/cash-bills?order=${id}`)}>View Cash Bill</Button>
+            <Button variant="outline" icon={<Receipt />} onClick={() => navigate(`/cash-bills?order=${id}`)}>View cash bill</Button>
           )}
           {status === "2" && isCash && (
-            <Button variant="outline" busy={sendOtp.isPending} icon={<Send className="h-3.5 w-3.5" />} onClick={() => sendOtp.mutate(undefined)}>Send Delivery OTP</Button>
-          )}
-          {(status === "2" || status === "3") && o.zb_invoice_id && (
-            <>
-              <Button variant="info" icon={<ExternalLink className="h-3.5 w-3.5" />} onClick={() => window.open(`${zohoApp}/invoices/${o.zb_invoice_id}`, "_blank", "noopener")}>E-Invoice</Button>
-              <Menu label="Send Invoice to..." icon={<Send className="h-3.5 w-3.5" />} disabled={sendInvoice.isPending} items={[
-                { label: "Customer (with OTP)", onClick: () => sendInvoice.mutate("customer") },
-                { label: "Customer (with OTP) & Transporter", onClick: () => sendInvoice.mutate("customer_transporter") },
-              ]} />
-              <Menu label="View" icon={<Eye className="h-3.5 w-3.5" />} items={[
-                { label: "View Invoice", onClick: viewInvoice },
-                ...(total >= 50000 ? [{ label: "View E-way Bill", onClick: () => window.open(`${zohoApp}/ewaybills/new?entity_id=${o.zb_invoice_id}&entity_type=invoice`, "_blank", "noopener") }] : []),
-              ]} />
-            </>
+            <Button variant="outline" busy={sendOtp.isPending} icon={<Send />} onClick={() => sendOtp.mutate(undefined)}>Send delivery OTP</Button>
           )}
         </div>
-      </div>
+        {cashMode && status === "1" && <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Cash bill mode: this order will be billed as cash instead of a Zoho invoice.</div>}
+      </Card>
 
-      <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Customer Information</h3>
-      <div className="grid grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4 md:grid-cols-4">
-        <KV label="Name" value={o.customer_name} />
-        <KV label="Phone" value={o.customer_phone} />
-        <KV label="Site" value={[o.site_name, o.site_person_name, o.site_person_contact].filter(Boolean).join(" · ")} />
-        <KV label="Order Date" value={fmtDate(o.order_date)} />
-        <KV label="Billing Address" value={[b.line1, b.line2, b.city, b.state, b.pincode].filter(Boolean).join(", ")} />
-        <KV label="Delivery Address" value={[s.line1, s.line2, s.city, s.state, s.pincode].filter(Boolean).join(", ")} />
-        <KV label="Delivery Date" value={fmtDate(o.delivery_date)} />
-        <KV label={status === "1" ? "Order Value" : "Total Amount"} value={inr(o.total_amount ?? total)} />
-        {s.maps_link && <KV label="Map" value={<a className="text-info underline" href={s.maps_link} target="_blank" rel="noreferrer">Open map</a>} />}
-      </div>
+      <Section title="Customer and delivery" icon={<UserRound />}>
+        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KV label="Customer" value={o.customer_name} />
+          <KV label="Phone" value={o.customer_phone && <a href={`tel:${o.customer_phone}`} className="inline-flex items-center gap-1 hover:text-primary"><Phone className="h-3 w-3" />{o.customer_phone}</a>} />
+          <KV label="Site" value={o.site_name} />
+          <KV label="Site contact" value={[o.site_person_name, o.site_person_contact].filter(Boolean).join(" · ")} />
+          <KV className="sm:col-span-2" label="Billing address" value={[b.line1, b.line2, b.city, b.state, b.pincode].filter(Boolean).join(", ")} />
+          <KV className="sm:col-span-2" label="Delivery address" value={<>
+            {[s.line1, s.line2, s.city, s.state, s.pincode].filter(Boolean).join(", ")}
+            {s.maps_link && <a className="ml-2 inline-flex items-center gap-1 font-medium text-primary hover:underline" href={s.maps_link} target="_blank" rel="noreferrer"><MapPin className="h-3 w-3" />Map</a>}
+          </>} />
+          <KV label="Order date" value={fmtDate(o.order_date)} />
+          <KV label="Delivery date" value={fmtDate(o.delivery_date)} />
+        </div>
+      </Section>
 
-      <TransportPanel order={o} onAddVehicle={() => setModal("vehicle")} onSlips={() => setModal("slips")} onDeliver={() => setModal("deliver")} />
+      <TransportPanel order={o} onAddVehicle={() => setModal("vehicle")} onSlips={() => setModal("slips")} />
 
-      <div className="mb-2 mt-5 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium text-secondary">Order Details</h3>
-        {status === "1" && (
-          cashMode
-            ? <Button variant="outline" onClick={() => setCashMode(false)}>Back to invoice</Button>
-            : <Button variant="outline" icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => setModal("cash")}>CASH BILL</Button>
-        )}
-      </div>
-      {cashMode && status === "1" && <div className="mb-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">Cash bill mode: this order will be billed as cash instead of a Zoho invoice.</div>}
-      <ItemsTable items={o.items} idKey="order_item_id" onSave={status === "1" ? (items) => saveItems.mutate(items) : undefined} saving={saveItems.isPending} />
-      {total >= 50000 && o.tcs_status && <p className="mt-2 text-[11px] text-gray-500">TCS applies to this customer.</p>}
+      <Section title="Items" icon={<Boxes />} description={status === "1" ? "Quantities and prices can be edited until the order is billed" : undefined} bodyClassName="p-0">
+        <ItemsTable items={o.items} idKey="order_item_id" onSave={status === "1" ? (items) => saveItems.mutate(items) : undefined} saving={saveItems.isPending} />
+      </Section>
 
       {modal === "slips" && <LoadingSlipsModal order={o} onClose={() => setModal(null)} />}
       {modal === "deliver" && <DeliverModal orderId={id} onClose={() => setModal(null)} onDone={() => { setModal(null); onMoved("3"); }} />}
       {modal === "vehicle" && <AddVehicleModal transporterId={o.transporter_id} onClose={() => setModal(null)} />}
       {modal === "cash" && (
-        <Modal open onClose={() => setModal(null)} title="Convert to Cash Bill" size="sm" footer={<><Button variant="outline" onClick={() => setModal(null)}>Cancel</Button><Button onClick={() => { setCashMode(true); setModal(null); }}>Confirm</Button></>}>
-          <p className="text-sm text-secondary">Are you sure you want to convert Order {id} to a Cash Bill?</p>
+        <Modal open onClose={() => setModal(null)} title="Convert to cash bill" size="sm" footer={<><Button variant="outline" onClick={() => setModal(null)}>Cancel</Button><Button onClick={() => { setCashMode(true); setModal(null); }}>Confirm</Button></>}>
+          <p className="text-sm text-secondary">Bill order #{id} as cash instead of a Zoho invoice?</p>
         </Modal>
       )}
-    </Card>
+    </div>
+  );
+}
+
+// Where the order is in its life: placed, transport, slips, billed, delivered.
+function Stepper({ order: o }: { order: any }) {
+  const billed = o.order_status === "2" || o.order_status === "3";
+  const steps = [
+    { label: "Order placed", done: true, note: fmtDate(o.order_date) },
+    { label: "Transport", done: !!(o.warehouse_id && o.transporter_id && o.vehicle_id), note: o.vehicle_number ?? (o.transporter_name || "Not assigned") },
+    { label: "Loading slips", done: o.loading_slip_items.length > 0, note: o.loading_slip_items.length ? `${o.loading_slip_items.length} slip${o.loading_slip_items.length === 1 ? "" : "s"}` : "Not created" },
+    { label: o.payment_type === "cash" ? "Cash bill" : "Invoice", done: billed, note: billed ? (o.zb_invoice_number ?? (o.payment_type === "cash" ? "Generated" : "Done")) : "Pending" },
+    { label: "Delivered", done: o.order_status === "3", note: o.order_status === "3" ? "OTP verified" : o.order_status === "2" ? "In transit" : "—" },
+  ];
+  const current = steps.findIndex((x) => !x.done);
+  return (
+    <ol className="mt-5 grid grid-cols-5 gap-1">
+      {steps.map((st, i) => (
+        <li key={st.label} className="relative min-w-0">
+          {i > 0 && <span className={clsx("absolute right-1/2 top-3 h-0.5 w-full -translate-y-1/2", steps[i - 1].done && (st.done || i === current) ? "bg-primary" : "bg-gray-200")} style={{ marginRight: 14 }} />}
+          <div className="relative flex flex-col items-center text-center">
+            <span className={clsx("grid h-6 w-6 place-items-center rounded-full text-2xs font-semibold ring-4 ring-white",
+              st.done ? "bg-primary text-white" : i === current ? "bg-white text-primary ring-primary/15 outline outline-2 outline-primary" : "bg-gray-100 text-gray-400")}>
+              {st.done ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : i + 1}
+            </span>
+            <span className={clsx("mt-1.5 text-2xs font-medium", st.done || i === current ? "text-secondary" : "text-gray-400")}>{st.label}</span>
+            <span className="hidden max-w-full truncate px-1 text-2xs text-gray-400 sm:block">{st.note}</span>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }
 
 // Transport Details + Dispatch Details panels (container17 / container38)
-function TransportPanel({ order: o, onAddVehicle, onSlips, onDeliver }: { order: any; onAddVehicle: () => void; onSlips: () => void; onDeliver: () => void }) {
+function TransportPanel({ order: o, onAddVehicle, onSlips }: { order: any; onAddVehicle: () => void; onSlips: () => void }) {
   const editable = o.order_status === "1";
   const initial = () => ({
     warehouse_id: o.warehouse_id ?? "", transporter_id: o.transporter_id ?? "", vehicle_id: o.vehicle_id ?? "",
@@ -217,43 +286,53 @@ function TransportPanel({ order: o, onAddVehicle, onSlips, onDeliver }: { order:
   const notify = useAction(() => post(`orders/${o.order_id}/notify-transporter`), [], { onSuccess: (r) => toast(r.sent === false ? r.note : "Order details sent to transporter", r.sent === false ? "warn" : "ok") });
   const dirty = JSON.stringify(f) !== JSON.stringify(initial());
   const set = (patch: Partial<ReturnType<typeof initial>>) => setF({ ...f, ...patch });
+  const slips: any[] = o.loading_slip_items;
 
   return (
-    <div className="mt-4 grid gap-4 xl:grid-cols-2">
-      <div className="rounded-xl border p-4">
-        <h3 className="text-sm font-medium text-secondary">Transport Details</h3>
-        <p className="mb-3 text-xs text-gray-500">Assign a transporter and set delivery details</p>
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+      <Section title="Transport and dispatch" icon={<Truck />} description={editable ? "Assign the warehouse, transporter and vehicle" : undefined}
+        actions={editable && dirty ? <Badge tone="yellow" dot>Unsaved changes</Badge> : undefined}>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Warehouse"><Select id="ord-wh" value={f.warehouse_id} disabled={!editable} onChange={(e) => set({ warehouse_id: e.target.value, transporter_id: "", vehicle_id: "" })} placeholder="Select a warehouse" options={(warehouses.data ?? []).map((w) => ({ value: w.warehouse_id, label: w.name }))} /></Field>
-          <Field label="Transporter"><Select id="ord-tr" value={f.transporter_id} disabled={!editable || !f.warehouse_id} onChange={(e) => set({ transporter_id: e.target.value, vehicle_id: "" })} placeholder="Select an option" options={(transporters.data ?? []).map((t) => ({ value: t.transporter_id, label: t.transporter_name }))} /></Field>
-          <Field label="Delivery Terms"><Select id="ord-terms" value={f.delivery_terms} disabled={!editable} onChange={(e) => set({ delivery_terms: e.target.value })} placeholder="Select an option" options={["Delivery", "Ex warehouse"].map((x) => ({ value: x, label: x }))} /></Field>
-          <Field label="Vehicle Number">
-            <Select id="ord-veh" value={f.vehicle_id} disabled={!editable || !f.transporter_id} onChange={(e) => set({ vehicle_id: e.target.value })} placeholder="Select a vehicle" options={(vehicles.data ?? []).map((v) => ({ value: v.vehicle_id, label: v.vehicle_number }))} />
+          <Field label="Transporter"><Select id="ord-tr" value={f.transporter_id} disabled={!editable || !f.warehouse_id} onChange={(e) => set({ transporter_id: e.target.value, vehicle_id: "" })} placeholder={f.warehouse_id ? "Select a transporter" : "Pick a warehouse first"} options={(transporters.data ?? []).map((t) => ({ value: t.transporter_id, label: t.transporter_name }))} /></Field>
+          <Field label="Vehicle number">
+            <Select id="ord-veh" value={f.vehicle_id} disabled={!editable || !f.transporter_id} onChange={(e) => set({ vehicle_id: e.target.value })} placeholder={f.transporter_id ? "Select a vehicle" : "Pick a transporter first"} options={(vehicles.data ?? []).map((v) => ({ value: v.vehicle_id, label: v.vehicle_number }))} />
           </Field>
+          <Field label="Delivery terms"><Select id="ord-terms" value={f.delivery_terms} disabled={!editable} onChange={(e) => set({ delivery_terms: e.target.value })} placeholder="Select terms" options={["Delivery", "Ex warehouse"].map((x) => ({ value: x, label: x }))} /></Field>
+          <Field label="Sub dealer"><Input id="ord-sub" value={f.sub_dealer} disabled={!editable} onChange={(e) => set({ sub_dealer: e.target.value })} placeholder="Optional" /></Field>
+          <Field label="PO number"><Input id="ord-po" value={f.po_number} disabled={!editable} onChange={(e) => set({ po_number: e.target.value })} placeholder="Optional" /></Field>
         </div>
         {editable && (
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="outline" disabled={!o.transporter_id || dirty} title={dirty ? "Save details first" : !o.transporter_id ? "Select a transporter first" : "If the vehicle number isn't listed, add it"} icon={<Plus className="h-3.5 w-3.5" />} onClick={onAddVehicle}>Add New Vehicle Number</Button>
-            <Button variant="secondary" busy={notify.isPending} disabled={!o.warehouse_id || !o.transporter_id || !o.vehicle_id || dirty} title={dirty ? "Save details first" : undefined} icon={<Truck className="h-3.5 w-3.5" />} onClick={() => notify.mutate(undefined)}>Notify Transporter</Button>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <Button busy={save.isPending} disabled={!dirty} icon={<Save />} onClick={() => save.mutate(undefined)}>Save details</Button>
+            <Button variant="outline" busy={notify.isPending} disabled={!o.warehouse_id || !o.transporter_id || !o.vehicle_id || dirty} title={dirty ? "Save details first" : undefined} icon={<Truck />} onClick={() => notify.mutate(undefined)}>Notify transporter</Button>
+            <Button variant="ghost" disabled={!o.transporter_id || dirty} title={dirty ? "Save details first" : !o.transporter_id ? "Select a transporter first" : "Add a vehicle that isn't listed"} icon={<Plus />} onClick={onAddVehicle}>Add vehicle</Button>
           </div>
         )}
-      </div>
-      <div className="rounded-xl border p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-secondary">Dispatch Details</h3>
-          {o.order_status === "2" && <Button variant="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />} onClick={onDeliver}>Confirm Delivery</Button>}
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Sub Dealer"><Input id="ord-sub" value={f.sub_dealer} disabled={!editable} onChange={(e) => set({ sub_dealer: e.target.value })} placeholder="Enter sub dealer name" /></Field>
-          <Field label="PO Number"><Input id="ord-po" value={f.po_number} disabled={!editable} onChange={(e) => set({ po_number: e.target.value })} placeholder="Enter PO number" /></Field>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {editable && <Button busy={save.isPending} disabled={!dirty} icon={<Save className="h-3.5 w-3.5" />} onClick={() => save.mutate(undefined)}>Save Details</Button>}
-          {editable && <Button variant="secondary" icon={<PackagePlus className="h-3.5 w-3.5" />} onClick={onSlips}>Manage Loading Slips{o.loading_slip_items.length ? ` (${o.loading_slip_items.length})` : ""}</Button>}
-          {!editable && o.loading_slip_items.length > 0 && <Button variant="outline" icon={<Eye className="h-3.5 w-3.5" />} onClick={onSlips}>View Loading Slips</Button>}
-        </div>
-        {editable && dirty && <p className="mt-2 text-[11px] text-warning">Unsaved changes</p>}
-      </div>
+      </Section>
+
+      <Section title="Loading slips" icon={<PackagePlus />} description={slips.length ? `${slips.length} slip${slips.length === 1 ? "" : "s"}, one per brand` : "One slip per brand for the warehouse"}
+        actions={slips.length > 0 ? <Button variant="outline" icon={editable ? <PackagePlus /> : <Eye />} onClick={onSlips}>{editable ? "Manage" : "View"}</Button> : undefined}>
+        {slips.length ? (
+          <ul className="space-y-1.5">
+            {slips.map((r) => (
+              <li key={r.loading_slip_item_id} className="flex items-center gap-3 rounded-lg border border-black/[0.06] px-3 py-2">
+                <FileText className="h-4 w-4 shrink-0 text-gray-400" />
+                <div className="min-w-0 flex-1">
+                  <a href={r.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-secondary hover:text-primary">{r.loading_slip_file_name}</a>
+                  <div className="truncate text-2xs text-gray-500">{r.brand}{r.warehouse_keeper_name ? ` · ${r.warehouse_keeper_name}` : ""}</div>
+                </div>
+                <Badge dot tone={r.status === "Sent" ? "green" : r.status === "Cancelled" ? "red" : "gray"}>{r.status === "Active" || !r.status ? "Not sent" : r.status}</Badge>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-4 text-center">
+            <div className="text-xs text-gray-500">{editable ? (o.warehouse_id ? "No slips yet." : "Save a warehouse first, then create the slips.") : "No loading slips."}</div>
+            {editable && o.warehouse_id && <Button icon={<PackagePlus />} onClick={onSlips}>Create loading slips</Button>}
+          </div>
+        )}
+      </Section>
     </div>
   );
 }
@@ -266,7 +345,7 @@ function LoadingSlipsModal({ order: o, onClose }: { order: any; onClose: () => v
   const cancel = useAction((sid: number) => post(`loading-slip-items/${sid}/cancel`), ["orders", "loading-slips"]);
   const rows: any[] = o.loading_slip_items;
   return (
-    <Modal open onClose={onClose} title="Manage Loading Slips" size="lg">
+    <Modal open onClose={onClose} title="Manage loading slips" size="lg">
       {editable && (
         <div className="mb-4 flex flex-wrap items-end gap-2 rounded-xl bg-gray-50 p-3">
           <Field label="Loading slip date"><DateInput id="ls-date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
@@ -327,8 +406,8 @@ function AddVehicleModal({ transporterId, onClose }: { transporterId: number; on
   const exists = !!num && (vehicles.data ?? []).some((v) => norm(v.vehicle_number) === norm(num));
   const add = useAction(() => post(`transporters/${transporterId}/vehicles`, { vehicle_number: num }), ["transporters", "vehicle-details"], { onSuccess: onClose });
   return (
-    <Modal open onClose={onClose} title="Add New Vehicle Number" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button busy={add.isPending} disabled={!norm(num) || exists} onClick={() => add.mutate(undefined)}>Save</Button></>}>
-      <Field label="Vehicle Number"><Input id="new-veh" autoFocus value={num} onChange={(e) => setNum(e.target.value)} placeholder="GJ01AB1234" /></Field>
+    <Modal open onClose={onClose} title="Add new vehicle number" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button busy={add.isPending} disabled={!norm(num) || exists} onClick={() => add.mutate(undefined)}>Save</Button></>}>
+      <Field label="Vehicle number"><Input id="new-veh" autoFocus value={num} onChange={(e) => setNum(e.target.value)} placeholder="GJ01AB1234" /></Field>
       {exists && <p className="mt-2 text-xs text-red-700">This vehicle is already added for this transporter.</p>}
       <p className="mt-2 text-[11px] text-gray-500">After saving, pick it in Vehicle Number and Save Details.</p>
     </Modal>

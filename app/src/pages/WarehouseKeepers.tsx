@@ -12,23 +12,28 @@ export default function WarehouseKeepers() {
 
   return (
     <div>
-      <PageHeader title="Warehouse Keepers">
-        <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setEdit({})}>Add Warehouse Keeper</Button>
+      <PageHeader title="Warehouse Keepers" description="People who receive loading slips on WhatsApp">
+        <Button variant="outline" icon={<Download />}
+          onClick={() => exportRows(rows.map(({ warehouse_keeper_id, name, phone, warehouse_name }) => ({ warehouse_keeper_id, name, phone, warehouse: warehouse_name })), "Warehouse Keepers", "csv").catch((e) => toast(e.message, "error"))}>Export</Button>
+        <Button icon={<Plus />} onClick={() => setEdit({})}>Add keeper</Button>
       </PageHeader>
       <Card>
-        <div className="flex flex-wrap items-center gap-2 border-b p-3">
-          <div className="w-full sm:w-72"><SearchInput value={q} onChange={setQ} placeholder="Search here" /></div>
-          <Button variant="ghost" className="ml-auto" icon={<Download className="h-3.5 w-3.5" />}
-            onClick={() => exportRows(rows.map(({ warehouse_keeper_id, name, phone, warehouse_name }) => ({ warehouse_keeper_id, name, phone, warehouse: warehouse_name })), "Warehouse Keepers", "csv").catch((e) => toast(e.message, "error"))}>Download</Button>
+        <div className="flex flex-wrap items-center gap-2 border-b border-black/[0.05] p-3">
+          <div className="w-full sm:w-80"><SearchInput value={q} onChange={setQ} placeholder="Search name, phone or warehouse" /></div>
+          <span className="ml-auto text-2xs text-gray-500">{rows.length} shown</span>
         </div>
         {keepers.error && <div className="p-3"><ErrorBox error={keepers.error} /></div>}
-        {keepers.isLoading ? <Loading /> : (
-          <DataTable rows={rows} rowKey={(r: any) => r.warehouse_keeper_id} pageSize={15} columns={[
-            { key: "warehouse_keeper_id", label: "Warehouse keeper ID" },
-            { key: "name", label: "Name", render: (r: any) => <b>{r.name}</b> },
-            { key: "phone", label: "Phone" },
+        {keepers.isLoading ? <div className="p-4"><Loading variant="inline" /></div> : (
+          <DataTable rows={rows} rowKey={(r: any) => r.warehouse_keeper_id} pageSize={15} onRowClick={(r: any) => setEdit(r)} empty="No warehouse keepers" columns={[
+            { key: "name", label: "Name", render: (r: any) => (
+              <div className="flex items-center gap-3">
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-secondary/[0.06] text-2xs font-semibold text-secondary/70">{String(r.name ?? "?").split(/\s+/).map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}</div>
+                <span className="font-medium">{r.name}</span>
+              </div>
+            ) },
+            { key: "phone", label: "Phone", className: "tabular" },
             { key: "warehouse_name", label: "Warehouse" },
-            { key: "actions", label: "Actions", render: (r: any) => <Button variant="ghost" icon={<Pencil className="h-3.5 w-3.5" />} onClick={() => setEdit(r)}>Edit</Button> },
+            { key: "actions", label: "", align: "right", render: (r: any) => <Button variant="ghost" aria-label={`Edit ${r.name}`} icon={<Pencil />} onClick={(e) => { e.stopPropagation(); setEdit(r); }} /> },
           ]} />
         )}
       </Card>

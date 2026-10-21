@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { CarFront } from "lucide-react";
 import { useGet } from "../api";
 import { Card, DataTable, ErrorBox, Loading, PageHeader, SearchInput } from "../components/ui";
 
@@ -14,17 +16,18 @@ export default function TransporterVehicles() {
 
   return (
     <div>
-      <PageHeader title="Transporter Vehicle Details" />
+      <PageHeader title="Vehicles" description="Every transporter vehicle. Add or remove them on the Transporters page." />
       <Card>
-        <div className="border-b p-3"><div className="w-full sm:w-80"><SearchInput value={q} onChange={setQ} placeholder="Search with transporter or vehicle number" /></div></div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-black/[0.05] p-3">
+          <div className="w-full sm:w-80"><SearchInput value={q} onChange={setQ} placeholder="Search vehicle number or transporter" /></div>
+          {data && <span className="ml-auto text-2xs text-gray-500">{data.length} vehicle{data.length === 1 ? "" : "s"}</span>}
+        </div>
         {error && <div className="p-3"><ErrorBox error={error} /></div>}
-        {isLoading ? <Loading /> : (
-          <DataTable rows={data ?? []} rowKey={(r: any) => r.vehicle_id} pageSize={20} columns={[
-            { key: "sno", label: "S.NO", render: (_: any, i: number) => i + 1 },
-            { key: "transporter_id", label: "Transporter ID" },
-            { key: "vehicle_number", label: "Vehicle number", render: (r: any) => <b>{r.vehicle_number}</b> },
-            { key: "transporter_name", label: "Transporter name" },
-            { key: "transporter_phone", label: "Transporter phone" },
+        {isLoading ? <div className="p-4"><Loading variant="inline" /></div> : (
+          <DataTable rows={data ?? []} rowKey={(r: any) => r.vehicle_id} pageSize={20} empty="No vehicles match" columns={[
+            { key: "vehicle_number", label: "Vehicle", render: (r: any) => <span className="inline-flex items-center gap-2 font-medium"><CarFront className="h-3.5 w-3.5 text-gray-400" />{r.vehicle_number}</span> },
+            { key: "transporter_name", label: "Transporter", render: (r: any) => <Link to="/transporters" className="hover:text-primary">{r.transporter_name}</Link> },
+            { key: "transporter_phone", label: "Phone", className: "tabular" },
           ]} />
         )}
       </Card>

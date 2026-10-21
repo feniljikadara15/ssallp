@@ -5,13 +5,38 @@ import { usePopover } from "./pickers";
 export { Select, DateInput } from "./pickers";
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={clsx("rounded-xl2 border border-black/10 bg-white", className)}>{children}</div>;
+  return <div className={clsx("rounded-xl2 border border-black/[0.06] bg-white shadow-card", className)}>{children}</div>;
 }
 
-export function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
+// A card with a titled header row: icon, title, optional description and actions.
+export function Section({ title, description, icon, actions, children, className, bodyClassName }: {
+  title: ReactNode; description?: ReactNode; icon?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string;
+}) {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <h1 className="text-2xl font-bold text-secondary">{title}</h1>
+    <Card className={className}>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[0.05] px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          {icon && <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-secondary/[0.06] text-secondary/70 [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</div>}
+          <div className="min-w-0">
+            <h3 className="truncate text-[13px] font-semibold text-secondary">{title}</h3>
+            {description && <p className="truncate text-2xs text-gray-500">{description}</p>}
+          </div>
+        </div>
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
+      </div>
+      <div className={bodyClassName ?? "p-4"}>{children}</div>
+    </Card>
+  );
+}
+
+export function PageHeader({ title, description, children }: { title: string; description?: ReactNode; children?: ReactNode }) {
+  useEffect(() => { document.title = `${title} · Sambhavnath OMS`; }, [title]);
+  return (
+    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="text-[22px] font-semibold tracking-tight text-secondary">{title}</h1>
+        {description && <p className="mt-0.5 text-xs text-gray-500">{description}</p>}
+      </div>
       <div className="flex flex-wrap items-center gap-2">{children}</div>
     </div>
   );
@@ -25,60 +50,65 @@ export function Button({ variant = "primary", className, icon, busy, children, .
       {...p}
       disabled={p.disabled || busy}
       className={clsx(
-        "inline-flex items-center justify-center gap-1.5 rounded-xl2 px-3.5 py-1.5 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-3 text-xs font-medium transition active:translate-y-px disabled:pointer-events-none disabled:opacity-45 [&>svg]:h-3.5 [&>svg]:w-3.5",
         {
-          primary: "bg-primary text-white hover:bg-primary-600",
-          secondary: "bg-secondary text-white hover:bg-secondary-600",
-          outline: "border border-black/20 bg-white text-secondary hover:bg-black/5",
-          danger: "bg-danger text-white hover:opacity-90",
-          success: "bg-success text-white hover:opacity-90",
-          info: "bg-info text-white hover:opacity-90",
+          primary: "bg-primary text-white shadow-sm shadow-primary/25 hover:bg-primary-600",
+          secondary: "bg-secondary text-white shadow-sm hover:bg-secondary-600",
+          outline: "border border-black/[0.12] bg-white text-secondary shadow-sm hover:border-black/20 hover:bg-gray-50",
+          danger: "border border-red-200 bg-white text-red-700 hover:border-red-300 hover:bg-red-50",
+          success: "bg-emerald-600 text-white shadow-sm hover:bg-emerald-700",
+          info: "bg-info text-white shadow-sm hover:opacity-90",
           ghost: "text-secondary hover:bg-black/5",
         }[variant],
         className,
       )}
     >
-      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : icon}
+      {busy ? <Loader2 className="animate-spin" /> : icon}
       {children}
     </button>
   );
 }
 
-export function Badge({ tone = "gray", children }: { tone?: "gray" | "orange" | "green" | "blue" | "red" | "yellow" | "purple"; children: ReactNode }) {
+type Tone = "gray" | "orange" | "green" | "blue" | "red" | "yellow" | "purple";
+const TONES: Record<Tone, { chip: string; dot: string }> = {
+  gray: { chip: "bg-gray-100 text-gray-700 ring-gray-200", dot: "bg-gray-400" },
+  orange: { chip: "bg-primary-50 text-primary-700 ring-primary-100", dot: "bg-primary" },
+  green: { chip: "bg-emerald-50 text-emerald-700 ring-emerald-100", dot: "bg-emerald-500" },
+  blue: { chip: "bg-sky-50 text-sky-700 ring-sky-100", dot: "bg-sky-500" },
+  red: { chip: "bg-red-50 text-red-700 ring-red-100", dot: "bg-red-500" },
+  yellow: { chip: "bg-amber-50 text-amber-800 ring-amber-100", dot: "bg-amber-500" },
+  purple: { chip: "bg-violet-50 text-violet-700 ring-violet-100", dot: "bg-violet-500" },
+};
+export function Badge({ tone = "gray", dot, children }: { tone?: Tone; dot?: boolean; children: ReactNode }) {
   return (
-    <span
-      className={clsx("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium", {
-        gray: "bg-gray-100 text-gray-700",
-        orange: "bg-primary-100 text-primary-700",
-        green: "bg-emerald-100 text-emerald-800",
-        blue: "bg-blue-100 text-blue-800",
-        red: "bg-red-100 text-red-800",
-        yellow: "bg-amber-100 text-amber-800",
-        purple: "bg-purple-100 text-purple-800",
-      }[tone])}
-    >
+    <span className={clsx("inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ring-inset", TONES[tone].chip)}>
+      {dot && <span className={clsx("h-1.5 w-1.5 rounded-full", TONES[tone].dot)} />}
       {children}
     </span>
   );
 }
 
-export function Stat({ label, value, sub, icon }: { label: string; value: ReactNode; sub?: ReactNode; icon?: ReactNode }) {
+export function Stat({ label, value, sub, icon, tone = "orange" }: { label: string; value: ReactNode; sub?: ReactNode; icon?: ReactNode; tone?: "orange" | "blue" | "green" | "navy" | "amber" }) {
   return (
-    <Card className="flex items-center gap-4 p-4">
-      {icon && <div className="grid h-11 w-11 place-items-center rounded-full bg-primary-50 text-primary">{icon}</div>}
-      <div>
-        <div className="text-xs text-gray-500">{label}</div>
-        <div className="text-2xl font-bold text-secondary">{value}</div>
-        {sub && <div className="text-xs">{sub}</div>}
+    <Card className="p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="text-xs font-medium text-gray-500">{label}</div>
+        {icon && (
+          <div className={clsx("grid h-8 w-8 shrink-0 place-items-center rounded-lg [&>svg]:h-4 [&>svg]:w-4", {
+            orange: "bg-primary-50 text-primary", blue: "bg-sky-50 text-sky-600", green: "bg-emerald-50 text-emerald-600", navy: "bg-secondary/[0.07] text-secondary", amber: "bg-amber-50 text-amber-600",
+          }[tone])}>{icon}</div>
+        )}
       </div>
+      <div className="tabular mt-1 text-2xl font-semibold tracking-tight text-secondary">{value}</div>
+      {sub && <div className="mt-1 text-2xs text-gray-500">{sub}</div>}
     </Card>
   );
 }
 
 export function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <label className={clsx("block", className)}>
-      <span className="mb-1 block text-xs font-medium text-gray-600">{label}</span>
+    <label className={clsx("block min-w-0", className)}>
+      <span className="mb-1.5 block text-xs font-medium text-gray-700">{label}</span>
       {children}
     </label>
   );
@@ -91,9 +121,14 @@ export const Textarea = (p: React.TextareaHTMLAttributes<HTMLTextAreaElement>) =
 
 export function SearchInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
-      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="pl-8" />
+      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className={clsx("pl-8", value && "pr-7")} />
+      {value && (
+        <button type="button" aria-label="Clear search" onClick={() => onChange("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-gray-400 hover:bg-black/5 hover:text-secondary">
+          <X className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }
@@ -130,15 +165,20 @@ export function Modal({ open, onClose, title, children, footer, size = "md" }: {
 
 export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { value: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void }) {
   return (
-    <div className="flex gap-1 overflow-x-auto border-b">
+    <div role="tablist" className="flex gap-0.5 overflow-x-auto rounded-lg bg-gray-100/80 p-0.5">
       {tabs.map((t) => (
         <button
           key={t.value}
+          role="tab"
+          aria-selected={value === t.value}
           onClick={() => onChange(t.value)}
-          className={clsx("-mb-px shrink-0 whitespace-nowrap border-b-2 px-2.5 py-2 text-xs font-medium", value === t.value ? "border-primary text-primary" : "border-transparent text-gray-500 hover:text-secondary")}
+          className={clsx(
+            "flex flex-1 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium transition",
+            value === t.value ? "bg-white text-secondary shadow-sm" : "text-gray-500 hover:text-secondary",
+          )}
         >
           {t.label}
-          {t.count !== undefined && <span className="ml-1.5 rounded-full bg-gray-100 px-1.5 text-[10px] text-gray-600">{t.count}</span>}
+          {t.count !== undefined && <span className={clsx("tabular rounded-full px-1.5 text-2xs", value === t.value ? "bg-primary-50 text-primary-700" : "bg-black/5 text-gray-500")}>{t.count}</span>}
         </button>
       ))}
     </div>
@@ -171,9 +211,9 @@ export function DataTable<T>({ rows, columns, rowKey, pageSize = 12, onRowClick,
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="border-b bg-gray-50 text-left text-gray-500">
+            <tr className="border-b border-black/[0.06] bg-gray-50/70 text-left text-2xs uppercase tracking-wide text-gray-500">
               {columns.map((c) => (
-                <th key={c.key} className={clsx("whitespace-nowrap px-3 py-2 font-medium", c.align === "right" && "text-right")}>{c.label}</th>
+                <th key={c.key} className={clsx("whitespace-nowrap px-4 py-2.5 font-medium", c.align === "right" && "text-right")}>{c.label}</th>
               ))}
             </tr>
           </thead>
@@ -182,10 +222,10 @@ export function DataTable<T>({ rows, columns, rowKey, pageSize = 12, onRowClick,
               <tr
                 key={rowKey(r)}
                 onClick={() => onRowClick?.(r)}
-                className={clsx("border-b last:border-0", onRowClick && "cursor-pointer hover:bg-primary-50/50", selectedKey === rowKey(r) && "bg-primary-50")}
+                className={clsx("border-b border-black/[0.04] transition-colors last:border-0 hover:bg-gray-50/80", onRowClick && "cursor-pointer", selectedKey === rowKey(r) && "bg-primary-50/60")}
               >
                 {columns.map((c) => (
-                  <td key={c.key} className={clsx("whitespace-nowrap px-3 py-2", c.align === "right" && "text-right", c.className)}>
+                  <td key={c.key} className={clsx("whitespace-nowrap px-4 py-2.5 text-secondary", c.align === "right" && "tabular text-right", c.className)}>
                     {c.render ? c.render(r, cur * pageSize + i) : String((r as Record<string, unknown>)[c.key] ?? "")}
                   </td>
                 ))}
@@ -198,7 +238,7 @@ export function DataTable<T>({ rows, columns, rowKey, pageSize = 12, onRowClick,
         </table>
       </div>
       {rows.length > pageSize && (
-        <div className="flex items-center justify-end gap-2 border-t px-3 py-2 text-xs text-gray-500">
+        <div className="flex items-center justify-end gap-2 border-t border-black/[0.05] px-4 py-2 text-xs text-gray-500">
           <span>{cur * pageSize + 1}–{Math.min(rows.length, (cur + 1) * pageSize)} of {rows.length}</span>
           <button disabled={cur === 0} onClick={() => setPage(cur - 1)} className="rounded p-1 hover:bg-black/5 disabled:opacity-30"><ChevronLeft className="h-4 w-4" /></button>
           <button disabled={cur >= pages - 1} onClick={() => setPage(cur + 1)} className="rounded p-1 hover:bg-black/5 disabled:opacity-30"><ChevronRight className="h-4 w-4" /></button>
@@ -217,11 +257,11 @@ export function EmptyState({ text, icon }: { text: string; icon?: ReactNode }) {
   );
 }
 
-export function KV({ label, value }: { label: string; value: ReactNode }) {
+export function KV({ label, value, className }: { label: string; value: ReactNode; className?: string }) {
   return (
-    <div>
-      <div className="text-[11px] uppercase tracking-wide text-gray-400">{label}</div>
-      <div className="text-xs font-medium text-secondary">{value || "—"}</div>
+    <div className={clsx("min-w-0", className)}>
+      <div className="text-2xs font-medium text-gray-500">{label}</div>
+      <div className="mt-0.5 break-words text-xs font-medium text-secondary">{value || <span className="font-normal text-gray-300">—</span>}</div>
     </div>
   );
 }

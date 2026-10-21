@@ -3,7 +3,13 @@
 @tailwind utilities;
 
 html, body, #root { height: 100%; }
-body { font-size: 12px; background: #f6f6f8; color: #0d0d0d; }
+body { font-size: 13px; background: #f5f6f8; color: #1d2233; -webkit-font-smoothing: antialiased; font-feature-settings: "cv11", "ss01"; }
+.tabular { font-variant-numeric: tabular-nums; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(41,47,69,0.15); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: rgba(41,47,69,0.3); }
+:where(button, a, [tabindex]):focus-visible { outline: 2px solid rgba(242,98,34,0.5); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible { outline: none; }
 
 @keyframes pop-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } to { opacity: 1; transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }

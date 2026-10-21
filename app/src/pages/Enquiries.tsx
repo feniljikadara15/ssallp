@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Trash2, RotateCcw, ArrowRightCircle, Send, X } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { Plus, Trash2, RotateCcw, ArrowRightCircle, Send, X, MessagesSquare, UserRound, Truck, Boxes, MapPin, Phone, CheckCircle2 } from "lucide-react";
 import { api, patch, post, useAction, useGet } from "../api";
 import { fmtDate, includes, inRange, inr, today } from "../format";
-import { ask, Badge, Button, Card, Checkbox, Combobox, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Select, Tabs, Textarea, toast, DateInput } from "../components/ui";
+import { ask, Badge, Button, Card, Checkbox, Combobox, EmptyState, ErrorBox, Field, Input, KV, Loading, Modal, PageHeader, SearchInput, Section, Select, Tabs, Textarea, toast, DateInput } from "../components/ui";
 import ListItem, { revealDetail } from "../components/ListItem";
 import { ItemsTable } from "../components/ItemsEditor";
 
 type Tab = "0" | "1" | "5";
-const TABS: { value: Tab; label: string }[] = [{ value: "0", label: "Ongoing" }, { value: "1", label: "Past" }, { value: "5", label: "Deleted" }];
+const TABS: { value: Tab; label: string }[] = [{ value: "0", label: "Ongoing" }, { value: "1", label: "Converted" }, { value: "5", label: "Deleted" }];
 
 export default function Enquiries() {
   const enquiries = useGet<any[]>("enquiries", { refetchInterval: 60_000 });
@@ -18,6 +19,17 @@ export default function Enquiries() {
   const [sel, setSel] = useState<number | null>(null);
   const [showNew, setShowNew] = useState(false);
 
+  // ?id=<enquiry> opens it; ?new=1 opens the New Enquiry form.
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    if (params.get("new")) { setShowNew(true); setParams({}, { replace: true }); return; }
+    const id = Number(params.get("id"));
+    if (!id || !enquiries.data) return;
+    const e = enquiries.data.find((x) => x.enquiry_id === id);
+    if (e) { setTab(e.enquiry_status); setQ(""); setFrom(""); setTo(""); setSel(id); revealDetail(); }
+    setParams({}, { replace: true });
+  }, [params, enquiries.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const list = useMemo(
     () => (enquiries.data ?? []).filter((e) => e.enquiry_status === tab && includes(e.customer_name, q) && (tab === "5" || inRange(e.enquiry_date, from, to))),
     [enquiries.data, tab, q, from, to],
@@ -25,34 +37,40 @@ export default function Enquiries() {
 
   return (
     <div>
-      <PageHeader title="Enquiries">
-        <Button icon={<Plus className="h-3.5 w-3.5" />} onClick={() => setShowNew(true)}>New</Button>
+      <PageHeader title="Enquiries" description="Requests from customers, the website form and the team">
+        <Button icon={<Plus />} onClick={() => setShowNew(true)}>New enquiry</Button>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
-        <Card className="p-3">
+      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] items-start [&>*]:min-w-0">
+        <Card className="flex flex-col p-3 lg:sticky lg:top-0 lg:max-h-[calc(100vh-120px)]">
           <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (enquiries.data ?? []).filter((e) => e.enquiry_status === t.value).length }))} />
           <div className="mt-3 space-y-2">
-            <SearchInput value={q} onChange={setQ} placeholder="Search by Customer" />
+            <SearchInput value={q} onChange={setQ} placeholder="Search customer" />
             {tab !== "5" && (
               <div className="grid grid-cols-2 gap-2">
-                <DateInput aria-label="From date" value={from} onChange={(e) => setFrom(e.target.value)} />
-                <DateInput aria-label="To date" value={to} onChange={(e) => setTo(e.target.value)} />
+                <DateInput aria-label="From date" placeholder="From" value={from} onChange={(e) => setFrom(e.target.value)} />
+                <DateInput aria-label="To date" placeholder="To" value={to} onChange={(e) => setTo(e.target.value)} />
               </div>
             )}
           </div>
-          <div className="mt-3 max-h-[calc(100vh-300px)] space-y-2 overflow-y-auto pr-1">
-            {enquiries.isLoading && <Loading />}
+          <div className="mt-3 flex items-center justify-between px-1 text-2xs text-gray-500">
+            <span>{list.length} enquir{list.length === 1 ? "y" : "ies"}</span>
+            {(q || from || to) && <button className="font-medium text-primary hover:underline" onClick={() => { setQ(""); setFrom(""); setTo(""); }}>Clear filters</button>}
+          </div>
+          <div className="-mx-1 mt-1 min-h-[200px] flex-1 space-y-0.5 overflow-y-auto px-1">
+            {enquiries.isLoading && <Loading variant="inline" />}
             {enquiries.error && <ErrorBox error={enquiries.error} />}
             {list.map((e) => (
               <ListItem key={e.enquiry_id} active={sel === e.enquiry_id} onClick={() => { setSel(e.enquiry_id); revealDetail(); }}
-                title={`EN - ${e.enquiry_id} - ${e.customer_name ?? ""}`}
-                tag={e.type && <Badge tone={e.type === "External" ? "purple" : "blue"}>{e.type}</Badge>}
-                right={fmtDate(e.enquiry_date)} />
+                title={e.customer_name ?? "—"}
+                subtitle={[`EN-${e.enquiry_id}`, e.site_name, `${e.item_count} item${e.item_count === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
+                tag={e.type && <Badge tone={e.type === "External" ? "purple" : "gray"}>{e.type === "External" ? "Website" : e.type}</Badge>}
+                right={fmtDate(e.enquiry_date)}
+                rightSub={Number(e.items_value) > 0 ? inr(e.items_value) : undefined} />
             ))}
-            {enquiries.data && !list.length && <div className="py-8 text-center text-xs text-gray-400">No enquiries</div>}
+            {enquiries.data && !list.length && <div className="py-10 text-center text-xs text-gray-400">No enquiries match these filters</div>}
           </div>
         </Card>
-        <div id="detail-panel" className="min-w-0 scroll-mt-4">{sel ? <EnquiryDetail id={sel} onMoved={(t) => { setTab(t); if (t === "5" || t === "1") setSel(null); }} /> : <EmptyState text="Select an enquiry to view details" />}</div>
+        <div id="detail-panel" className="min-w-0 scroll-mt-4">{sel ? <EnquiryDetail id={sel} onMoved={(t) => { setTab(t); if (t === "5" || t === "1") setSel(null); }} /> : <EmptyState icon={<MessagesSquare className="h-5 w-5" />} text="Pick an enquiry on the left to review it and turn it into an order." />}</div>
       </div>
       {showNew && <NewEnquiryModal onClose={() => setShowNew(false)} onCreated={(id) => { setTab("0"); setSel(id); }} />}
     </div>
@@ -70,69 +88,97 @@ function EnquiryDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void 
   const saveItems = useAction((items: Record<string, unknown>[]) => patch(`enquiries/${id}/items`, { items }), ["enquiries"]);
   const notify = useAction(() => post(`enquiries/${id}/notify-transporter`), [], { onSuccess: (r) => toast(r.note ?? "Enquiry sent to transporter", r.sent === false ? "warn" : "ok") });
 
-  if (isLoading) return <Card className="p-5"><Loading /></Card>;
+  if (isLoading) return <Card className="p-5"><Loading variant="inline" /></Card>;
   if (error || !e) return <Card className="p-5"><ErrorBox error={error} /></Card>;
   const b = e.billing_address ?? {}, d = e.delivery_address ?? {};
   const total = e.items.reduce((a: number, x: any) => a + Number(x.total_price ?? Number(x.quantity) * Number(x.unit_price)), 0);
 
+  const open = e.enquiry_status === "0";
+  const ready = e.warehouse_id != null && e.transporter_id != null;
+  const STATUS = { "0": { label: "Ongoing", tone: "orange" }, "1": { label: "Converted to order", tone: "green" }, "5": { label: "Deleted", tone: "red" } } as const;
+  const st = STATUS[e.enquiry_status as "0" | "1" | "5"];
+
   return (
-    <Card className="min-w-0 p-5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-medium text-secondary">Enquiry #{e.enquiry_id}</h2>
-          <div className="text-xs text-gray-500">{fmtDate(e.enquiry_date)}{e.type && ` · ${e.type}`}</div>
+    <div className="min-w-0 space-y-4">
+      <Card className="p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-2xs font-medium text-gray-500">
+              <span>EN-{e.enquiry_id}</span><span className="text-gray-300">/</span><span>{fmtDate(e.enquiry_date)}</span>
+              {e.type && <><span className="text-gray-300">/</span><span>{e.type === "External" ? "Website form" : e.type}</span></>}
+            </div>
+            <h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-secondary">{e.customer_name}</h2>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {st && <Badge dot tone={st.tone}>{st.label}</Badge>}
+              {e.tcs_status && <Badge tone="purple">TCS</Badge>}
+              {e.delivery_date && <Badge>Deliver by {fmtDate(e.delivery_date)}</Badge>}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xs font-medium text-gray-500">Enquiry value</div>
+            <div className="tabular text-xl font-semibold tracking-tight text-secondary">{inr(total)}</div>
+            <div className="text-2xs text-gray-500">{e.items.length} item{e.items.length === 1 ? "" : "s"}</div>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {e.enquiry_status === "0" && (
-            <>
-              <Button variant="danger" busy={del.isPending} icon={<Trash2 className="h-3.5 w-3.5" />} onClick={async () => (await ask(`Delete enquiry #${id}? The customer gets a rejection message on WhatsApp.`, "Delete")) && del.mutate(undefined)}>Delete Enquiry</Button>
-              <Button busy={createOrder.isPending} disabled={e.warehouse_id == null || e.transporter_id == null} title={e.warehouse_id == null || e.transporter_id == null ? "Set the warehouse and transporter first" : undefined}
-                icon={<ArrowRightCircle className="h-3.5 w-3.5" />} onClick={() => createOrder.mutate(undefined)}>Create Order</Button>
-            </>
-          )}
-          {e.enquiry_status === "5" && <Button variant="success" busy={restore.isPending} icon={<RotateCcw className="h-3.5 w-3.5" />} onClick={() => restore.mutate(undefined)}>Restore</Button>}
+        {(open || e.enquiry_status === "5") && (
+          <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-black/[0.05] pt-4">
+            {open && (
+              <>
+                <Button busy={createOrder.isPending} disabled={!ready} icon={<ArrowRightCircle />} onClick={() => createOrder.mutate(undefined)}>Create order</Button>
+                {!ready && <span className="text-2xs text-gray-500">Pick the warehouse and transporter below first</span>}
+                <div className="flex-1" />
+                <Button variant="danger" busy={del.isPending} icon={<Trash2 />} onClick={async () => (await ask(`Delete enquiry EN-${id}? The customer gets a rejection message on WhatsApp.`, "Delete")) && del.mutate(undefined)}>Delete</Button>
+              </>
+            )}
+            {e.enquiry_status === "5" && <Button variant="success" busy={restore.isPending} icon={<RotateCcw />} onClick={() => restore.mutate(undefined)}>Restore enquiry</Button>}
+          </div>
+        )}
+        {e.enquiry_status === "1" && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800"><CheckCircle2 className="h-3.5 w-3.5" /> This enquiry has been converted to an order.</div>
+        )}
+      </Card>
+
+      {open && (
+        <Section title="Transport" icon={<Truck />} description="Choose where it ships from and who carries it">
+          <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
+            <Field label="Warehouse">
+              <Select value={e.warehouse_id ?? ""} disabled={setTransport.isPending} onChange={(ev) => setTransport.mutate({ warehouse_id: ev.target.value || null })}
+                placeholder="Select a warehouse" options={(warehouses.data ?? []).map((w) => ({ value: w.warehouse_id, label: w.name }))} />
+            </Field>
+            <Field label="Transporter">
+              <Select value={e.transporter_id ?? ""} disabled={e.warehouse_id == null || setTransport.isPending} onChange={(ev) => setTransport.mutate({ transporter_id: ev.target.value || null })}
+                placeholder={e.warehouse_id == null ? "Pick a warehouse first" : "Select a transporter"} options={(transporters.data ?? []).map((t) => ({ value: t.transporter_id, label: t.transporter_name }))} />
+            </Field>
+            <Button variant="outline" busy={notify.isPending} disabled={e.transporter_id == null} icon={<Send />} onClick={() => notify.mutate(undefined)}>Ask transporter</Button>
+          </div>
+        </Section>
+      )}
+
+      <Section title="Customer and delivery" icon={<UserRound />}>
+        <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KV label="Customer" value={e.customer_name} />
+          <KV label="Phone" value={[e.customer_phone, e.additional_phone_1, e.additional_phone_2].filter(Boolean).map((p: string) => (
+            <a key={p} href={`tel:${p}`} className="mr-2 inline-flex items-center gap-1 hover:text-primary"><Phone className="h-3 w-3" />{p}</a>
+          ))} />
+          <KV label="GSTIN" value={e.gstin} />
+          <KV label="PAN" value={e.pan} />
+          <KV label="Site" value={e.site_name} />
+          <KV label="Site contact" value={[e.site_person_name, e.site_person_contact].filter(Boolean).join(" · ")} />
+          <KV label="Zoho customer ID" value={e.zb_customer_id} />
+          <KV label="TCS" value={e.tcs_status ? "Applicable" : "Not applicable"} />
+          <KV className="sm:col-span-2" label="Billing address" value={[b.line1, b.line2, b.city, b.state, b.pincode].filter(Boolean).join(", ")} />
+          <KV className="sm:col-span-2" label="Delivery address" value={<>
+            {[d.line1, d.line2, d.city, d.state, d.pincode].filter(Boolean).join(", ")}
+            {d.maps_link && <a className="ml-2 inline-flex items-center gap-1 font-medium text-primary hover:underline" href={d.maps_link} target="_blank" rel="noreferrer"><MapPin className="h-3 w-3" />Map</a>}
+          </>} />
+          {e.remarks && <KV className="sm:col-span-2 xl:col-span-4" label="Remarks" value={e.remarks} />}
         </div>
-      </div>
+      </Section>
 
-      <h3 className="mb-2 mt-5 text-sm font-medium text-secondary">Customer Information</h3>
-      <div className="grid grid-cols-2 gap-4 rounded-xl bg-gray-50 p-4 md:grid-cols-4">
-        <KV label="Customer" value={e.customer_name} />
-        <KV label="Phone" value={[e.customer_phone, e.additional_phone_1, e.additional_phone_2].filter(Boolean).join(", ")} />
-        <KV label="GSTIN" value={e.gstin} />
-        <KV label="PAN" value={e.pan} />
-        <KV label="ZB Customer ID" value={e.zb_customer_id} />
-        <KV label="TCS" value={e.tcs_status ? "Applicable" : "No"} />
-        <KV label="Billing Address" value={[b.line1, b.line2, b.city, b.state, b.pincode].filter(Boolean).join(", ")} />
-        <KV label="Delivery Date" value={fmtDate(e.delivery_date)} />
-        <KV label="Site" value={e.site_name} />
-        <KV label="Site Person" value={[e.site_person_name, e.site_person_contact].filter(Boolean).join(" · ")} />
-        <KV label="Delivery Address" value={[d.line1, d.line2, d.city, d.state, d.pincode].filter(Boolean).join(", ")} />
-        <KV label="Map" value={d.maps_link ? <a className="text-info underline" href={d.maps_link} target="_blank" rel="noreferrer">Open map</a> : null} />
-        {e.remarks && <KV label="Remarks" value={e.remarks} />}
-      </div>
-
-      <div className="mt-4 rounded-xl border p-4">
-        <h3 className="text-sm font-medium text-secondary">Transport Details</h3>
-        <p className="mb-3 text-xs text-gray-500">Assign a transporter and set delivery details</p>
-        <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
-          <Field label="Warehouse">
-            <Select value={e.warehouse_id ?? ""} disabled={e.enquiry_status !== "0" || setTransport.isPending} onChange={(ev) => setTransport.mutate({ warehouse_id: ev.target.value || null })}
-              placeholder="Select a warehouse" options={(warehouses.data ?? []).map((w) => ({ value: w.warehouse_id, label: w.name }))} />
-          </Field>
-          <Field label="Transporter">
-            <Select value={e.transporter_id ?? ""} disabled={e.enquiry_status !== "0" || e.warehouse_id == null || setTransport.isPending} onChange={(ev) => setTransport.mutate({ transporter_id: ev.target.value || null })}
-              placeholder="Select an option" options={(transporters.data ?? []).map((t) => ({ value: t.transporter_id, label: t.transporter_name }))} />
-          </Field>
-          <Button variant="secondary" busy={notify.isPending} disabled={e.transporter_id == null} icon={<Send className="h-3.5 w-3.5" />} onClick={() => notify.mutate(undefined)}>Notify Transporter</Button>
-        </div>
-      </div>
-
-      <div className="mb-2 mt-5 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-secondary">Enquiry Items</h3>
-        <span className="text-xs text-gray-500">Total {inr(total)}</span>
-      </div>
-      <ItemsTable items={e.items} idKey="enquiry_item_id" onSave={e.enquiry_status === "0" ? (items) => saveItems.mutate(items) : undefined} saving={saveItems.isPending} />
-    </Card>
+      <Section title="Items" icon={<Boxes />} description={open ? "Quantities and prices can be edited until the order is created" : undefined} bodyClassName="p-0">
+        <ItemsTable items={e.items} idKey="enquiry_item_id" onSave={open ? (items) => saveItems.mutate(items) : undefined} saving={saveItems.isPending} />
+      </Section>
+    </div>
   );
 }
 
@@ -141,7 +187,11 @@ function EnquiryDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void 
 interface Item { product_id: number; category: string; brand: string; grade: string; unit: string; quantity: number; unit_price: number }
 type Pick = { id: string | number | null; label: string };
 const emptyAddr = { line1: "", line2: "", city: "", state: "Gujarat", pincode: "" };
-const H = ({ children }: { children: string }) => <h4 className="mb-2 mt-5 text-xs font-bold uppercase tracking-wide text-gray-500 first:mt-0">{children}</h4>;
+const H = ({ children }: { children: string }) => (
+  <h4 className="mb-3 mt-6 flex items-center gap-3 text-[13px] font-semibold text-secondary first:mt-0">
+    {children}<span className="h-px flex-1 bg-black/[0.06]" />
+  </h4>
+);
 
 function NewEnquiryModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
   const customers = useGet<any[]>("customers");
@@ -225,20 +275,20 @@ function NewEnquiryModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const stateOptions = (states.data ?? []).map((s) => ({ value: s.state_name, label: s.state_name }));
 
   return (
-    <Modal open onClose={onClose} title="New Enquiry" size="xl" footer={
+    <Modal open onClose={onClose} title="New enquiry" size="xl" footer={
       <>
         {missing.length > 0 && <span className="mr-auto self-center text-xs text-gray-500">Still needed: {missing.join(", ")}</span>}
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button busy={create.isPending} disabled={missing.length > 0} onClick={() => create.mutate(undefined)}>Create Enquiry</Button>
       </>
     }>
-      <H>Customer Information</H>
+      <H>Customer information</H>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Customer Name" className="sm:col-span-2">
+        <Field label="Customer name" className="sm:col-span-2">
           <Combobox id="enq-customer" value={customer} onChange={(v) => { setCustomer(v); if (v.id === null) setZbId(""); }} placeholder="Select or enter name"
             options={(customers.data ?? []).filter((c) => c.is_active).map((c) => ({ id: c.customer_id, label: c.name, hint: c.phone }))} />
         </Field>
-        <Field label="Zoho Books Customer ID">
+        <Field label="Zoho Books customer ID">
           <div className="flex gap-1.5">
             <Input id="enq-zb" value={zbId} onChange={(e) => { setZbId(e.target.value); setZbCheck(""); }} placeholder="ZB Customer ID" />
             <Button variant="outline" disabled={!zbId} onClick={checkZb}>Check</Button>
@@ -246,8 +296,8 @@ function NewEnquiryModal({ onClose, onCreated }: { onClose: () => void; onCreate
           {zbCheck && <div className="mt-1 text-[11px] text-gray-500">ZB ID match: {zbCheck}</div>}
         </Field>
         <Field label="Phone"><Input id="enq-phone" value={phone} onChange={(e) => setPhone(e.target.value)} /></Field>
-        <Field label="Additional Phone 1"><Input id="enq-phone1" value={phone1} onChange={(e) => setPhone1(e.target.value)} /></Field>
-        <Field label="Additional Phone 2"><Input id="enq-phone2" value={phone2} onChange={(e) => setPhone2(e.target.value)} /></Field>
+        <Field label="Additional phone 1"><Input id="enq-phone1" value={phone1} onChange={(e) => setPhone1(e.target.value)} /></Field>
+        <Field label="Additional phone 2"><Input id="enq-phone2" value={phone2} onChange={(e) => setPhone2(e.target.value)} /></Field>
         <Field label="GSTIN">
           <Input id="enq-gstin" value={gstNA ? "" : gstin} disabled={gstNA} onChange={(e) => setGstin(e.target.value.toUpperCase())} placeholder="Enter GSTIN" />
           <div className="mt-1"><Checkbox label="GST Not Applicable" checked={gstNA} onChange={setGstNA} /></div>
@@ -259,38 +309,38 @@ function NewEnquiryModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <Field label="TCS"><div className="pt-1.5"><Checkbox label="TCS Applicable?" checked={tcs} onChange={setTcs} /></div></Field>
       </div>
 
-      <H>Billing Address</H>
+      <H>Billing address</H>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Field label="Address Line 1"><Input id="bill-l1" value={billing.line1} onChange={(e) => setBilling({ ...billing, line1: e.target.value })} placeholder="Enter address line 1" /></Field>
-        <Field label="Address Line 2"><Input id="bill-l2" value={billing.line2} onChange={(e) => setBilling({ ...billing, line2: e.target.value })} placeholder="Enter address line 2" /></Field>
+        <Field label="Address line 1"><Input id="bill-l1" value={billing.line1} onChange={(e) => setBilling({ ...billing, line1: e.target.value })} placeholder="Enter address line 1" /></Field>
+        <Field label="Address line 2"><Input id="bill-l2" value={billing.line2} onChange={(e) => setBilling({ ...billing, line2: e.target.value })} placeholder="Enter address line 2" /></Field>
         <Field label="Pincode"><Input id="bill-pin" value={billing.pincode} onChange={(e) => setBilling({ ...billing, pincode: e.target.value })} placeholder="Enter pincode" /></Field>
         <Field label="City"><Input id="bill-city" value={billing.city} onChange={(e) => setBilling({ ...billing, city: e.target.value })} placeholder="Enter city" /></Field>
         <Field label="State"><Select id="bill-state" value={billing.state} onChange={(e) => setBilling({ ...billing, state: e.target.value })} options={stateOptions} placeholder="Select an option" /></Field>
       </div>
 
-      <H>Delivery Address</H>
+      <H>Delivery address</H>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Site">
           <Combobox id="enq-site" value={site} onChange={pickSite} placeholder="Select or create site" options={sites.map((s) => ({ id: s.site_id, label: s.site_name ?? `Site ${s.site_id}`, hint: s.city }))} />
         </Field>
-        <Field label="Site Person Name"><Input id="site-person" value={delivery.sitePersonName} onChange={(e) => setDelivery({ ...delivery, sitePersonName: e.target.value })} placeholder="Enter site person name" /></Field>
-        <Field label="Site Person Phone"><Input id="site-phone" value={delivery.sitePersonPhone} onChange={(e) => setDelivery({ ...delivery, sitePersonPhone: e.target.value })} /></Field>
-        <Field label="Address Line 1"><Input id="del-l1" value={delivery.line1} onChange={(e) => setDelivery({ ...delivery, line1: e.target.value })} /></Field>
-        <Field label="Address Line 2"><Input id="del-l2" value={delivery.line2} onChange={(e) => setDelivery({ ...delivery, line2: e.target.value })} /></Field>
+        <Field label="Site person name"><Input id="site-person" value={delivery.sitePersonName} onChange={(e) => setDelivery({ ...delivery, sitePersonName: e.target.value })} placeholder="Enter site person name" /></Field>
+        <Field label="Site person phone"><Input id="site-phone" value={delivery.sitePersonPhone} onChange={(e) => setDelivery({ ...delivery, sitePersonPhone: e.target.value })} /></Field>
+        <Field label="Address line 1"><Input id="del-l1" value={delivery.line1} onChange={(e) => setDelivery({ ...delivery, line1: e.target.value })} /></Field>
+        <Field label="Address line 2"><Input id="del-l2" value={delivery.line2} onChange={(e) => setDelivery({ ...delivery, line2: e.target.value })} /></Field>
         <Field label="Pincode"><Input id="del-pin" value={delivery.pincode} onChange={(e) => setDelivery({ ...delivery, pincode: e.target.value })} /></Field>
         <Field label="City"><Input id="del-city" value={delivery.city} onChange={(e) => setDelivery({ ...delivery, city: e.target.value })} /></Field>
         <Field label="State"><Select id="del-state" value={delivery.state} onChange={(e) => setDelivery({ ...delivery, state: e.target.value })} options={stateOptions} placeholder="Select an option" /></Field>
-        <Field label="Google Maps Link"><Input id="del-map" value={delivery.mapsLink} onChange={(e) => setDelivery({ ...delivery, mapsLink: e.target.value })} placeholder="Paste maps link here" /></Field>
-        <Field label="Delivery Date"><DateInput id="del-date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} /></Field>
+        <Field label="Google Maps link"><Input id="del-map" value={delivery.mapsLink} onChange={(e) => setDelivery({ ...delivery, mapsLink: e.target.value })} placeholder="Paste maps link here" /></Field>
+        <Field label="Delivery date"><DateInput id="del-date" value={deliveryDate} onChange={(e) => setDeliveryDate(e.target.value)} /></Field>
       </div>
 
-      <H>Enquiry Items</H>
+      <H>Enquiry items</H>
       <div className="grid items-end gap-2 rounded-xl border p-3 sm:grid-cols-6">
         <Field label="Category"><Select id="it-cat" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value, brand: "", grade: "" })} options={categories.map((c) => ({ value: c, label: c }))} placeholder="Select a category" /></Field>
         <Field label="Brand"><Select id="it-brand" value={draft.brand} disabled={!draft.category} onChange={(e) => setDraft({ ...draft, brand: e.target.value, grade: "" })} options={brands.map((c) => ({ value: c, label: c }))} placeholder="Brand" /></Field>
         <Field label="Grade"><Select id="it-grade" value={draft.grade} disabled={!draft.brand} onChange={(e) => setDraft({ ...draft, grade: e.target.value })} options={grades.map((c) => ({ value: c, label: c }))} placeholder="Grade" /></Field>
         <Field label={`Quantity${unit ? ` (${unit})` : ""}`}><Input id="it-qty" type="number" min={0} value={draft.quantity} onChange={(e) => setDraft({ ...draft, quantity: e.target.value })} /></Field>
-        <Field label="Price (with Tax)">
+        <Field label="Price (with tax)">
           <Input id="it-price" type="number" min={0} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} />
         </Field>
         <div>
