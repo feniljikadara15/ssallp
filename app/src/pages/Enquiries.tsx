@@ -40,10 +40,10 @@ export default function Enquiries() {
       <PageHeader title="Enquiries" description="Customer requests waiting to become orders">
         <Button icon={<Plus />} onClick={() => setShowNew(true)}>New enquiry</Button>
       </PageHeader>
-      <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] items-start [&>*]:min-w-0">
+      <div className="grid items-start gap-5 lg:grid-cols-[380px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="flex flex-col p-3 lg:sticky lg:top-0 lg:max-h-[calc(100vh-120px)]">
           <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (enquiries.data ?? []).filter((e) => e.enquiry_status === t.value).length }))} />
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 shrink-0 space-y-2">
             <SearchInput value={q} onChange={setQ} placeholder="Search customer" />
             {tab !== "5" && (
               <div className="grid grid-cols-2 gap-2">
@@ -52,7 +52,7 @@ export default function Enquiries() {
               </div>
             )}
           </div>
-          <div className="mt-3 flex items-center justify-between px-1 text-2xs text-gray-500">
+          <div className="mt-3 flex shrink-0 items-center justify-between px-1 text-2xs text-gray-500">
             <span>{list.length} enquir{list.length === 1 ? "y" : "ies"}</span>
             {(q || from || to) && <button className="font-medium text-primary hover:underline" onClick={() => { setQ(""); setFrom(""); setTo(""); }}>Clear filters</button>}
           </div>

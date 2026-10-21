@@ -62,10 +62,10 @@ export default function Orders() {
       <PageHeader title="Orders" description="Dispatch, bill and deliver confirmed orders">
         {tab !== "5" && <Button variant="outline" busy={exporting} icon={<Download className="h-3.5 w-3.5" />} onClick={exportCsv} title={`Export ${EXPORT_NAME[tab]}`}>Export</Button>}
       </PageHeader>
-      <div className="grid items-start gap-5 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
+      <div className="grid items-start gap-5 lg:grid-cols-[380px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="flex flex-col p-3 lg:sticky lg:top-0 lg:max-h-[calc(100vh-120px)]">
-          <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: t.value === "5" ? undefined : (orders.data ?? []).filter((o) => o.order_status === t.value).length }))} />
-          <div className="mt-3 space-y-2">
+          <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (orders.data ?? []).filter((o) => o.order_status === t.value).length }))} />
+          <div className="mt-3 shrink-0 space-y-2">
             <SearchInput value={party} onChange={setParty} placeholder="Search customer" />
             <div className="grid grid-cols-2 gap-2">
               <SearchInput value={num} onChange={setNum} placeholder="Order no." />
@@ -74,7 +74,7 @@ export default function Orders() {
               {tab !== "5" && <DateInput aria-label="To date" placeholder="To" value={to} onChange={(e) => setTo(e.target.value)} />}
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between px-1 text-2xs text-gray-500">
+          <div className="mt-3 flex shrink-0 items-center justify-between px-1 text-2xs text-gray-500">
             <span>{list.length} order{list.length === 1 ? "" : "s"}</span>
             {(party || num || ls || from || to) && <button className="font-medium text-primary hover:underline" onClick={() => { setParty(""); setNum(""); setLs(""); setFrom(""); setTo(""); }}>Clear filters</button>}
           </div>

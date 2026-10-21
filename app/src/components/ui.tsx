@@ -163,22 +163,27 @@ export function Modal({ open, onClose, title, children, footer, size = "md" }: {
   );
 }
 
+// Segmented tabs: equal-width, fixed height, never scroll. Labels shrink
+// before anything wraps, so 2, 3 or 4 tabs look the same on every page.
 export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { value: T; label: string; count?: number }[]; value: T; onChange: (v: T) => void }) {
   return (
-    <div role="tablist" className="flex gap-0.5 overflow-x-auto rounded-lg bg-gray-100/80 p-0.5">
+    <div role="tablist" className="grid h-9 shrink-0 gap-0.5 rounded-lg bg-gray-100 p-0.5" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
       {tabs.map((t) => (
         <button
           key={t.value}
           role="tab"
           aria-selected={value === t.value}
+          title={t.count !== undefined ? `${t.label} (${t.count})` : t.label}
           onClick={() => onChange(t.value)}
           className={clsx(
-            "flex flex-1 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium transition",
+            "flex min-w-0 items-center justify-center gap-1.5 rounded-md px-1 text-xs font-medium transition",
             value === t.value ? "bg-white text-secondary shadow-sm" : "text-gray-500 hover:text-secondary",
           )}
         >
-          {t.label}
-          {t.count !== undefined && <span className={clsx("tabular rounded-full px-1.5 text-2xs", value === t.value ? "bg-primary-50 text-primary-700" : "bg-black/5 text-gray-500")}>{t.count}</span>}
+          <span className="truncate">{t.label}</span>
+          {t.count !== undefined && (
+            <span className={clsx("tabular shrink-0 text-2xs", value === t.value ? "font-semibold text-primary-700" : "text-gray-400")}>{t.count}</span>
+          )}
         </button>
       ))}
     </div>

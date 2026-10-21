@@ -53,13 +53,13 @@ export default function CashBills() {
       <PageHeader title="Cash Bills" description="Orders billed as cash and the payments collected against them">
         <Button variant="outline" busy={exporting} icon={<Download />} onClick={exportXlsx}>Export</Button>
       </PageHeader>
-      <div className="grid items-start gap-5 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
+      <div className="grid items-start gap-5 lg:grid-cols-[380px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="flex flex-col p-3 lg:sticky lg:top-0 lg:max-h-[calc(100vh-120px)]">
           <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={[
             { value: "pending", label: "Pending", count: pending.data?.length },
             { value: "collected", label: "Collected", count: collected.data?.length },
           ]} />
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 shrink-0 space-y-2">
             <SearchInput value={party} onChange={setParty} placeholder="Search customer" />
             <div className="grid grid-cols-2 gap-2">
               <SearchInput value={num} onChange={setNum} placeholder="Order no." />
@@ -68,7 +68,7 @@ export default function CashBills() {
               <DateInput aria-label="To date" placeholder="To" value={to} onChange={(e) => setTo(e.target.value)} />
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between px-1 text-2xs text-gray-500">
+          <div className="mt-3 flex shrink-0 items-center justify-between px-1 text-2xs text-gray-500">
             <span>{list.length} bill{list.length === 1 ? "" : "s"}{tab === "pending" && list.length > 0 && <> · {inr(list.reduce((a, o) => a + Number(o.total_amount) - Number(o.total_collected), 0))} due</>}</span>
             {(party || num || ls || from || to) && <button className="font-medium text-primary hover:underline" onClick={() => { setParty(""); setNum(""); setLs(""); setFrom(""); setTo(""); }}>Clear filters</button>}
           </div>
