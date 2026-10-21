@@ -538,7 +538,7 @@ route("GET", "/api/loading-slips", async (req) => {
     LEFT JOIN warehouse_brands wb ON LOWER(lsi.brand) = LOWER(wb.brand) AND wb.warehouse_id = ls.warehouse_id
     LEFT JOIN warehouse_keepers wk ON wb.warehouse_keeper_id = wk.warehouse_keeper_id`;
   const args = ["search", "brand", "warehouse", "start", "end"].map((k) => query.get(k) ?? "");
-  const limit = Math.min(Number(query.get("limit") ?? 15), 200), offset = Number(query.get("offset") ?? 0);
+  const limit = Math.min(Number(query.get("limit") ?? 15), 5000), offset = Number(query.get("offset") ?? 0);
   const rows = await q(
     `SELECT lsi.loading_slip_item_id, lsi.loading_slip_id, lsi.loading_slip_number, lsi.loading_slip_file_name, lsi.brand, lsi.status, lsi.url,
             ls.order_id, ls.transporter_id, ls.warehouse_id, o.enquiry_id, o.order_number, o.order_status, o.payment_type, o.total_amount, o.customer_id,

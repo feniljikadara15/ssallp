@@ -50,7 +50,7 @@ function Cell({ c, r }: { c: Col; r: Row }) {
     case "num": return <>{Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 })}</>;
     case "date": return <>{fmtDate(v)}</>;
     case "datetime": return <>{dateTime(v)}</>;
-    case "mono": return <span className="font-mono text-[12px]">{String(v)}</span>;
+    case "mono": return <span className="tabular-nums tracking-[0.01em]">{String(v)}</span>;
     default: return <>{String(v)}</>;
   }
 }

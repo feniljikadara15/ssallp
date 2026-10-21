@@ -1,36 +1,44 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { CarFront } from "lucide-react";
+import { useMemo } from "react";
+import { ExternalLink } from "lucide-react";
 import { useGet } from "../api";
-import { Card, DataTable, ErrorBox, Loading, PageHeader, SearchInput } from "../components/ui";
+import { num, stamp } from "../format";
+import { useUrlState } from "../lib/urlState";
+import { DataTable } from "../components/DataTable";
+import { ErrorBox, FilterBar, PageHeader, Select, StatStrip } from "../components/ui";
 
-// query12: every vehicle with its transporter, searchable by either.
+// Every transporter vehicle in one list. Vehicles are added and removed on
+// the transporter's own page.
 export default function TransporterVehicles() {
-  const [q, setQ] = useState("");
-  const [search, setSearch] = useState("");
-  useEffect(() => {
-    const t = setTimeout(() => setSearch(q.trim()), 250);
-    return () => clearTimeout(t);
-  }, [q]);
-  const { data, error, isLoading } = useGet<any[]>(`vehicle-details?search=${encodeURIComponent(search)}`);
+  const { data, error, isLoading } = useGet<any[]>("vehicle-details?search=");
+  const [f, set, clear] = useUrlState({ transporter: "" });
+  const all = data ?? [];
+  const transporters = useMemo(() => [...new Map(all.map((v) => [v.transporter_id, v.transporter_name])).entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1]))), [all]);
+  const rows = all.filter((v) => !f.transporter || String(v.transporter_id) === f.transporter);
 
   return (
-    <div>
-      <PageHeader title="Transporter Vehicle Details" description="Every transporter vehicle. Add or remove them on the Transporters page." />
-      <Card>
-        <div className="flex flex-wrap items-center gap-2 border-b border-black/[0.05] p-3">
-          <div className="w-full sm:w-80"><SearchInput value={q} onChange={setQ} placeholder="Search vehicle number or transporter" /></div>
-          {data && <span className="ml-auto text-2xs text-gray-500">{data.length} vehicle{data.length === 1 ? "" : "s"}</span>}
-        </div>
-        {error && <div className="p-3"><ErrorBox error={error} /></div>}
-        {isLoading ? <div className="p-4"><Loading variant="inline" /></div> : (
-          <DataTable rows={data ?? []} rowKey={(r: any) => r.vehicle_id} pageSize={20} empty="No vehicles match" columns={[
-            { key: "vehicle_number", label: "Vehicle", render: (r: any) => <span className="inline-flex items-center gap-2 font-medium"><CarFront className="h-3.5 w-3.5 text-gray-400" />{r.vehicle_number}</span> },
-            { key: "transporter_name", label: "Transporter", render: (r: any) => <Link to="/transporters" className="hover:text-primary">{r.transporter_name}</Link> },
-            { key: "transporter_phone", label: "Phone", className: "tabular" },
-          ]} />
-        )}
-      </Card>
+    <div className="page">
+      <PageHeader title="Transporter vehicles" subtitle="Every vehicle and its transporter. Add or remove vehicles on the transporter's page." />
+      <FilterBar active={!!f.transporter} onClear={() => clear(["transporter"])}>
+        <Select className="w-full sm:w-60" value={f.transporter} onChange={(e) => set({ transporter: e.target.value })} placeholder="All transporters"
+          options={transporters.map(([value, label]) => ({ value: String(value), label }))} />
+      </FilterBar>
+      {error && <ErrorBox error={error} />}
+      <StatStrip items={[
+        { label: "Vehicles", value: num(rows.length) },
+        { label: "Transporters", value: num(new Set(rows.map((v) => v.transporter_id)).size) },
+      ]} />
+      <DataTable title="Vehicles" filename={`Transporter vehicles ${stamp()}`} rowKey="vehicle_id" rows={rows} loading={isLoading}
+        filtersActive={!!f.transporter} onClearFilters={() => clear(["transporter"])}
+        rowLink={(r) => `/transporters/${r.transporter_id}`}
+        empty={{ title: "No vehicles yet", hint: "Add them on a transporter's page." }}
+        rowActions={(r) => [{ kind: "open", label: `Open ${r.transporter_name}`, icon: <ExternalLink />, href: `/transporters/${r.transporter_id}` }]}
+        cols={[
+          { key: "vehicle_number", label: "Vehicle number", kind: "mono" },
+          { key: "transporter_name", label: "Transporter" },
+          { key: "transporter_phone", label: "Phone", kind: "mono", sub: (r) => r.additional_mobile_number },
+          { key: "vehicle_type", label: "Type" },
+          { key: "capacity", label: "Capacity" },
+        ]} />
     </div>
   );
 }

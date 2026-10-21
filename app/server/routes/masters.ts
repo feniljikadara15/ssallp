@@ -17,7 +17,11 @@ route("GET", "/api/state-codes", async () => q("SELECT * FROM state_codes WHERE 
 // getAllCustomers (the page lists inactive customers too) with billing address
 route("GET", "/api/customers", async () =>
   q(`SELECT c.*, b.address_id AS billing_address_id, b.line1 AS billing_line1, b.line2 AS billing_line2, b.city AS billing_city,
-            b.state AS billing_state, b.pincode AS billing_pincode
+            b.state AS billing_state, b.pincode AS billing_pincode,
+            (SELECT COUNT(*)::int FROM sites s WHERE s.customer_id = c.customer_id AND s.is_active = TRUE) AS site_count,
+            (SELECT COUNT(*)::int FROM orders o WHERE o.customer_id = c.customer_id AND o.is_active = TRUE AND o.order_status <> '5') AS order_count,
+            (SELECT COALESCE(SUM(o.total_amount), 0)::float FROM orders o WHERE o.customer_id = c.customer_id AND o.is_active = TRUE AND o.order_status IN ('2', '3')) AS billed_value,
+            (SELECT MAX(o.order_date) FROM orders o WHERE o.customer_id = c.customer_id AND o.is_active = TRUE AND o.order_status <> '5') AS last_order
        FROM customers c
        LEFT JOIN LATERAL (SELECT * FROM addresses a WHERE a.customer_id = c.customer_id AND a.type = 'billing' AND a.is_active = TRUE ORDER BY a.address_id LIMIT 1) b ON TRUE
       ORDER BY c.name`));
@@ -140,7 +144,13 @@ route("POST", "/api/products/sync-zoho", async () => {
 
 // ------------------------------------------------------------ warehouses
 
-route("GET", "/api/warehouses", async () => q("SELECT * FROM warehouses WHERE is_active = TRUE ORDER BY warehouse_id ASC"));
+route("GET", "/api/warehouses", async () => q(`SELECT w.*,
+    (SELECT COUNT(*)::int FROM warehouse_brands wb WHERE wb.warehouse_id = w.warehouse_id AND wb.is_active IS NOT FALSE) AS brand_count,
+    (SELECT COUNT(*)::int FROM warehouse_brands wb WHERE wb.warehouse_id = w.warehouse_id AND wb.is_active IS NOT FALSE AND wb.warehouse_keeper_id IS NULL) AS brands_without_keeper,
+    (SELECT COUNT(*)::int FROM warehouse_keepers wk WHERE wk.warehouse_id = w.warehouse_id AND wk.is_active = TRUE) AS keeper_count,
+    (SELECT COUNT(*)::int FROM transporter_warehouses tw JOIN transporters t ON t.transporter_id = tw.transporter_id AND t.is_active = TRUE WHERE tw.warehouse_id = w.warehouse_id) AS transporter_count,
+    (SELECT COUNT(*)::int FROM orders o WHERE o.warehouse_id = w.warehouse_id AND o.is_active = TRUE AND o.order_status = '1') AS open_orders
+  FROM warehouses w WHERE w.is_active = TRUE ORDER BY w.warehouse_id ASC`));
 
 route("POST", "/api/warehouses", async ({ body }) => {
   if (!str(body.name)) throw new HttpError(400, "Warehouse name is required");
@@ -224,7 +234,9 @@ route("DELETE", "/api/warehouse-companies/:id", async ({ params }) => {
 // ------------------------------------------------------------ warehouse keepers
 
 route("GET", "/api/warehouse-keepers", async () =>
-  q("SELECT wk.*, w.name AS warehouse_name FROM warehouse_keepers wk LEFT JOIN warehouses w ON w.warehouse_id = wk.warehouse_id WHERE wk.is_active = TRUE ORDER BY wk.warehouse_keeper_id"));
+  q(`SELECT wk.*, w.name AS warehouse_name,
+            (SELECT STRING_AGG(wb.brand, ', ' ORDER BY wb.brand) FROM warehouse_brands wb WHERE wb.warehouse_keeper_id = wk.warehouse_keeper_id AND wb.is_active IS NOT FALSE) AS brands
+       FROM warehouse_keepers wk LEFT JOIN warehouses w ON w.warehouse_id = wk.warehouse_id WHERE wk.is_active = TRUE ORDER BY wk.warehouse_keeper_id`));
 
 route("POST", "/api/warehouse-keepers", async ({ body }) => {
   if (!str(body.name) || !str(body.phone)) throw new HttpError(400, "Name and phone are required");
@@ -244,7 +256,12 @@ route("DELETE", "/api/warehouse-keepers/:id", async ({ params }) => {
 
 // ------------------------------------------------------------ transporters
 
-route("GET", "/api/transporters", async () => q("SELECT * FROM transporters WHERE is_active = TRUE ORDER BY transporter_id ASC"));
+route("GET", "/api/transporters", async () => q(`SELECT t.*,
+    (SELECT COUNT(*)::int FROM vehicles v WHERE v.transporter_id = t.transporter_id AND v.is_active IS NOT FALSE) AS vehicle_count,
+    (SELECT STRING_AGG(w.name, ', ' ORDER BY w.name) FROM transporter_warehouses tw JOIN warehouses w ON w.warehouse_id = tw.warehouse_id WHERE tw.transporter_id = t.transporter_id) AS warehouse_names,
+    (SELECT ARRAY_AGG(tw.warehouse_id) FROM transporter_warehouses tw WHERE tw.transporter_id = t.transporter_id) AS warehouse_ids,
+    (SELECT COUNT(*)::int FROM orders o WHERE o.transporter_id = t.transporter_id AND o.is_active = TRUE AND o.order_status IN ('1', '2')) AS active_orders
+  FROM transporters t WHERE t.is_active = TRUE ORDER BY t.transporter_id ASC`));
 
 // addNewTransporter
 route("POST", "/api/transporters", async ({ body }) => {

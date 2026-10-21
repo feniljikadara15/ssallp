@@ -41,7 +41,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const cus: Hit[] = (customers.data ?? [])
       .filter((c) => has(c.name, c.phone, c.gstin))
       .slice(0, 5)
-      .map((c) => ({ key: `c${c.customer_id}`, group: "Customers", icon: Users, title: c.name, meta: [c.phone, c.gstin].filter(Boolean).join(" · "), to: `/customers?q=${encodeURIComponent(c.name)}` }));
+      .map((c) => ({ key: `c${c.customer_id}`, group: "Customers", icon: Users, title: c.name, meta: [c.phone, c.gstin].filter(Boolean).join(" · "), to: `/customers/${c.customer_id}` }));
     return [...ord, ...enq, ...cus, ...pages];
   }, [q, orders.data, enquiries.data, customers.data]);
 
