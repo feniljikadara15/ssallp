@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { useEffect, useState } from "react";
-import { ExternalLink, LogOut, Menu, Search, X, AlertTriangle, FlaskConical } from "lucide-react";
+import { LogOut, Menu, Search, X, AlertTriangle, FlaskConical } from "lucide-react";
 import { post, useGet, type Health, type Session } from "../api";
 import { LogoMark } from "./Logo";
 import { NAV } from "./nav";
@@ -64,10 +64,6 @@ function Sidebar({ onNavigate, onSearch, session }: { onNavigate?: () => void; o
         ))}
       </nav>
       <div className="border-t border-white/[0.08] p-3">
-        <a href="https://wordpress-511305-4547121.cloudwaysapps.com/" target="_blank" rel="noreferrer"
-          className="mb-2 flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-white/60 transition hover:bg-white/[0.05] hover:text-white">
-          <ExternalLink className="h-4 w-4 text-white/45" /> Customer enquiry form
-        </a>
         <div className="flex items-center gap-2.5 rounded-lg bg-white/[0.04] p-2">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary/90 text-2xs font-semibold text-white">{initials}</div>
           <div className="min-w-0 flex-1 leading-tight">

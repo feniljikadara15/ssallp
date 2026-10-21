@@ -37,7 +37,7 @@ export default function Enquiries() {
 
   return (
     <div>
-      <PageHeader title="Enquiries" description="Requests from customers, the website form and the team">
+      <PageHeader title="Enquiries" description="Customer requests waiting to become orders">
         <Button icon={<Plus />} onClick={() => setShowNew(true)}>New enquiry</Button>
       </PageHeader>
       <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] items-start [&>*]:min-w-0">
@@ -63,7 +63,7 @@ export default function Enquiries() {
               <ListItem key={e.enquiry_id} active={sel === e.enquiry_id} onClick={() => { setSel(e.enquiry_id); revealDetail(); }}
                 title={e.customer_name ?? "—"}
                 subtitle={[`EN-${e.enquiry_id}`, e.site_name, `${e.item_count} item${e.item_count === 1 ? "" : "s"}`].filter(Boolean).join(" · ")}
-                tag={e.type && <Badge tone={e.type === "External" ? "purple" : "gray"}>{e.type === "External" ? "Website" : e.type}</Badge>}
+                tag={e.type && <Badge tone={e.type === "External" ? "purple" : "gray"}>{e.type}</Badge>}
                 right={fmtDate(e.enquiry_date)}
                 rightSub={Number(e.items_value) > 0 ? inr(e.items_value) : undefined} />
             ))}
@@ -105,7 +105,7 @@ function EnquiryDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void 
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-2xs font-medium text-gray-500">
               <span>EN-{e.enquiry_id}</span><span className="text-gray-300">/</span><span>{fmtDate(e.enquiry_date)}</span>
-              {e.type && <><span className="text-gray-300">/</span><span>{e.type === "External" ? "Website form" : e.type}</span></>}
+              {e.type && <><span className="text-gray-300">/</span><span>{e.type}</span></>}
             </div>
             <h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-secondary">{e.customer_name}</h2>
             <div className="mt-2 flex flex-wrap gap-1.5">
