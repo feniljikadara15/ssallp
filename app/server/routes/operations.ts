@@ -2,7 +2,7 @@
 // Retool queries it replaces.
 import { randomInt, timingSafeEqual } from "node:crypto";
 import { config, isDemo, zohoConfigured } from "../config.js";
-import { insertRow, one, q, updateRow, type Row } from "../db.js";
+import { columnsOf, insertRow, one, q, updateRow, type Row } from "../db.js";
 import { HttpError, num, optNum, str } from "../http.js";
 import { zoho } from "../integrations.js";
 import * as msg from "../messages.js";
@@ -10,7 +10,7 @@ import { loadingSlipPdf } from "../pdf.js";
 import { publicBase, route } from "../router.js";
 import { signPath } from "../sign.js";
 import { dmy } from "../messages.js";
-import { createEnquiryWorkflow, fileSlug, invoicingWorkflow, loadingSlipWorkflow, slipUrl } from "../workflows.js";
+import { createEnquiryWorkflow, externalEnquiryInput, fileSlug, invoicingWorkflow, isExternalFormPayload, loadingSlipWorkflow, slipUrl } from "../workflows.js";
 
 const DATE_RANGE = (col: string, a: number, b: number) =>
   `(NULLIF($${a}::text, '') IS NULL OR ${col}::date >= $${a}::date) AND (NULLIF($${b}::text, '') IS NULL OR ${col}::date <= $${b}::date)`;
@@ -103,9 +103,11 @@ route("POST", "/api/enquiries/:id/create-order", async ({ params }) => {
      VALUES ($1, $2, NOW(), '1', $3, $4, $5, $6, $7, NOW(), NOW(), TRUE) RETURNING order_id`,
     [id, e.customer_id, e.billing_address_id, e.delivery_address_id, e.site_id, e.transporter_id, e.warehouse_id],
   );
+  // total_price is a generated column in some databases and a plain one in others
+  const tp = (await columnsOf("order_items")).has("total_price");
   await q(
-    `INSERT INTO order_items (order_id, product_id, quantity, unit_price, remarks, created_at, updated_at, is_active)
-     SELECT $1, ei.product_id, ei.quantity, ei.unit_price, 'No remarks', NOW(), NOW(), TRUE FROM enquiry_items ei WHERE ei.enquiry_id = $2`,
+    `INSERT INTO order_items (order_id, product_id, quantity, unit_price, remarks, created_at, updated_at, is_active${tp ? ", total_price" : ""})
+     SELECT $1, ei.product_id, ei.quantity, ei.unit_price, 'No remarks', NOW(), NOW(), TRUE${tp ? ", ei.quantity * ei.unit_price" : ""} FROM enquiry_items ei WHERE ei.enquiry_id = $2`,
     [order!.order_id, id],
   );
   await q("UPDATE enquiries SET enquiry_status = '1' WHERE enquiry_id = $1", [id]);
@@ -213,7 +215,8 @@ async function saveItems(table: "order_items" | "enquiry_items", parent: "order_
   for (const it of items as Record<string, unknown>[]) {
     const quantity = num(it.quantity, "Quantity"), unitPrice = num(it.unit_price, "Unit price");
     if (quantity <= 0 || unitPrice < 0) throw new HttpError(400, "Quantity must be more than zero and price can't be negative");
-    const res = await q(`UPDATE ${table} SET quantity = $1, unit_price = $2, updated_at = NOW() WHERE ${key} = $3 AND ${parent} = $4 RETURNING ${key}`, [quantity, unitPrice, num(it[key], "Item"), parentId]);
+    const tp = (await columnsOf(table)).has("total_price") ? ", total_price = $1::numeric * $2::numeric" : "";
+    const res = await q(`UPDATE ${table} SET quantity = $1, unit_price = $2${tp}, updated_at = NOW() WHERE ${key} = $3 AND ${parent} = $4 RETURNING ${key}`, [quantity, unitPrice, num(it[key], "Item"), parentId]);
     if (!res.length) throw new HttpError(404, "Item not found on this record");
   }
 }
@@ -265,7 +268,8 @@ route("POST", "/api/orders/:id/notify-transporter", async ({ params }) => msg.no
 // triggerLoadingSlipWorkflow
 route("POST", "/api/orders/:id/loading-slips", async ({ params, body }) => {
   const res = await loadingSlipWorkflow(num(params.id), str(body.date) ?? new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }));
-  return { message: `${res.count} loading slip${res.count === 1 ? "" : "s"} created` };
+  const skipped = res.skipped.length ? `. Not set up for this warehouse, so no slip: ${res.skipped.join(", ")}` : "";
+  return { message: `${res.count} loading slip${res.count === 1 ? "" : "s"} created${skipped}` };
 });
 
 async function slipRow(itemId: number) {
@@ -302,34 +306,34 @@ route("POST", "/api/loading-slip-items/:id/cancel", async ({ params }) => {
   return { message: `Loading Slip ${row.loading_slip_file_name} cancelled`, whatsapp: res };
 });
 
+// processItems + generateLSHTML from the "[v2] Loading Slip Generation"
+// workflow; the PDF is built on request rather than stored in Retool Storage.
 async function slipPdf(itemId: number) {
   const row = await slipRow(itemId);
   const o = (await one(
-    `SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, s.site_name, s.site_person_name, s.site_person_contact,
-            a.line1, a.line2, a.city, a.state, a.pincode, a.maps_link, w.name AS warehouse_name,
-            t.name AS transporter_name, t.phone_number AS transporter_phone, v.vehicle_number, to_jsonb(ls) ->> 'loading_slip_date' AS loading_slip_date
+    `SELECT o.order_id, o.order_number, o.sub_dealer, w.name AS godown, v.vehicle_number, to_jsonb(ls) ->> 'loading_slip_date' AS loading_slip_date
        FROM orders o JOIN loading_slips ls ON ls.loading_slip_id = $2
-       LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN sites s ON s.site_id = o.site_id
-       LEFT JOIN addresses a ON a.address_id = o.shipping_address_id LEFT JOIN warehouses w ON w.warehouse_id = ls.warehouse_id
-       LEFT JOIN transporters t ON t.transporter_id = o.transporter_id LEFT JOIN vehicles v ON v.vehicle_id = o.vehicle_id
+       LEFT JOIN warehouses w ON w.warehouse_id = o.warehouse_id LEFT JOIN vehicles v ON v.vehicle_id = o.vehicle_id
       WHERE o.order_id = $1`,
     [row.order_id, row.loading_slip_id],
   ))!;
   const items = await q(
-    `SELECT p.category, p.brand, p.grade, oi.quantity, p.unit FROM order_items oi JOIN products p ON p.product_id = oi.product_id
-      WHERE oi.order_id = $1 AND oi.is_active = TRUE AND LOWER(p.brand) = LOWER($2)`,
+    `SELECT p.product_name, p.grade, oi.quantity FROM order_items oi JOIN products p ON p.product_id = oi.product_id
+      WHERE oi.order_id = $1 AND oi.is_active = TRUE AND oi.quantity IS NOT NULL AND LOWER(p.brand) = LOWER($2) ORDER BY oi.order_item_id`,
     [row.order_id, row.brand],
   );
-  const date = dmy(o.loading_slip_date ?? row.created_at ?? row.updated_at ?? new Date(), "/");
   const pdf = await loadingSlipPdf({
-    number: row.loading_slip_number, fileName: row.loading_slip_file_name, date, orderId: row.order_id, orderNumber: o.order_number,
-    customer: o.customer_name, customerPhone: o.customer_phone, site: o.site_name, sitePerson: [o.site_person_name, o.site_person_contact].filter(Boolean).join(" "),
-    deliveryAddress: [o.line1, o.line2, o.city, o.state, o.pincode].filter(Boolean).join(", "), mapsLink: o.maps_link, warehouse: o.warehouse_name,
-    keeper: [row.warehouse_keeper_name, row.warehouse_keeper_phone].filter(Boolean).join(" "), transporter: o.transporter_name, transporterPhone: o.transporter_phone,
-    vehicle: o.vehicle_number, deliveryTerms: o.delivery_terms, subDealer: o.sub_dealer, poNumber: o.po_number, brand: row.brand,
-    items: items.map((i) => ({ category: i.category, brand: i.brand, grade: i.grade, quantity: Number(i.quantity), unit: i.unit })),
+    fileName: row.loading_slip_file_name ?? "",
+    date: dmy(o.loading_slip_date ?? row.created_at ?? new Date(), "/"),
+    orderNumber: o.order_number ?? `ON${o.order_id}`,
+    godown: o.godown,
+    vehicle: o.vehicle_number,
+    brand: row.brand,
+    product: items[0]?.product_name ?? null,
+    subDealer: o.sub_dealer,
+    items: items.map((i) => ({ grade: i.grade, quantity: Number(i.quantity) })),
   });
-  return { binary: { data: pdf, contentType: "application/pdf", filename: `${row.loading_slip_file_name}.pdf` } };
+  return { binary: { data: pdf, contentType: "application/pdf", filename: `${fileSlug(row.loading_slip_file_name || "loading-slip")}.pdf` } };
 }
 
 // downloadInvoice: the Zoho invoice PDF, streamed instead of copied to Retool Storage
@@ -569,20 +573,24 @@ route("GET", "/api/cash-bills-export", async ({ query }) => {
 
 // ------------------------------------------------------------ external enquiries
 
-// Replaces the Retool workflow webhook used by the WordPress external form.
-// Accepts the same JSON as triggerEnquiryWorkflow; send the key in an
-// "x-api-key" header (or ?key=). Items may name products by category/brand/grade.
+// Replaces the Retool workflow webhooks used by the WordPress external form.
+// Accepts the WordPress form's own JSON ("[LIVE] External Enquiry Form") or the
+// Create Enquiry JSON. Send the key in an "x-api-key" header (or ?key=).
 route("POST", "/api/webhooks/enquiry", async ({ headers, query, body }) => {
   if (!config.enquiryWebhookKey) throw new HttpError(503, "External enquiries are not enabled. Set ENQUIRY_WEBHOOK_KEY.");
   const given = String(headers["x-api-key"] ?? query.get("key") ?? "");
   const a = Buffer.from(given), b = Buffer.from(config.enquiryWebhookKey);
   if (a.length !== b.length || !timingSafeEqual(a, b)) throw new HttpError(401, "Invalid API key");
-  const res = await createEnquiryWorkflow({
-    ...body,
-    customerID: body.customerID ?? body.customerName,
-    deliveryAddress: { siteId: null, siteName: body.deliveryAddress?.siteName || body.deliveryAddress?.city || "Site", ...(body.deliveryAddress ?? {}) },
-    billingAddress: body.billingAddress ?? {},
-    source: body.source && body.source !== "Internal" ? body.source : "External",
-  });
+  const input = isExternalFormPayload(body)
+    ? await externalEnquiryInput(body)
+    : {
+        ...body,
+        customerID: body.customerID ?? body.customerName,
+        deliveryAddress: { siteId: null, siteName: body.deliveryAddress?.siteName || body.deliveryAddress?.city || "Site", ...(body.deliveryAddress ?? {}) },
+        billingAddress: body.billingAddress ?? {},
+        source: body.source && body.source !== "Internal" ? body.source : "External",
+        matchByPhone: body.customerID == null || !/^\d+$/.test(String(body.customerID)),
+      };
+  const res = await createEnquiryWorkflow(input);
   return { status: 201, json: { success: true, ...res } };
 }, { isPublic: true });

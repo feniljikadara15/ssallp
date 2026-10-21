@@ -40,26 +40,27 @@ Without `DATABASE_URL` the app runs in **demo mode**: an embedded Postgres (PGli
 
 ## WordPress external form
 
-The external form used to call a Retool workflow. Point it at this app instead:
+The external form used to call the "[LIVE] External Enquiry Form" Retool workflow. Point it at this app instead:
 
 - **URL:** `POST https://<your-domain>/api/webhooks/enquiry`
 - **Header:** `x-api-key: <ENQUIRY_WEBHOOK_KEY>`, plus `Content-Type: application/json`
-- **Body:** the same JSON the Retool enquiry workflow took, for example:
+- **Body:** the form's existing JSON, unchanged:
 
 ```json
 {
-  "customerName": "Shree Builders",
-  "customerPhone": "+919812345678",
-  "gstin": "24ABCDE1234F1Z5",
-  "billingAddress": { "line1": "12 MG Road", "line2": "", "city": "Ahmedabad", "state": "Gujarat", "pincode": "380001" },
-  "deliveryAddress": { "siteName": "Tower A", "line1": "Plot 5", "city": "Ahmedabad", "state": "Gujarat", "pincode": "380015",
-                       "sitePersonName": "Raju", "sitePersonPhone": "+919800000002", "mapsLink": "https://maps.google.com/..." },
-  "items": [{ "category": "Cement", "brand": "UltraTech", "grade": "OPC 53", "quantity": 200, "unit_price": 395 }],
-  "deliveryDate": "2026-10-25"
+  "first_name": "John", "last_name": "Doe", "phone": "9876543210", "gstin": "",
+  "deliveryAddressLine1": "126, Jayanagar 4th T block", "deliveryAddressLine2": "Jayanagar",
+  "deliveryCity": "Bengaluru", "deliveryState": "Karnataka", "deliveryPincode": "560041",
+  "sitePersonName": "Uncle Sam", "sitePersonPhone": "1234567890",
+  "billingDeliverySame": "true",
+  "acc": [["Opc 43", "10"]], "ultratech": [["PPC", "30"]],
+  "bindingWire": [["Mahaveer", "18 gauge", "20"]], "steel": "", "sand": ""
 }
 ```
 
-Items can name the product (category, brand, grade) or pass `product_id`. A customer with the same mobile number is reused, so repeat enquiries don't create duplicates. The reply is `201 {"success": true, "enquiry_id": ..., "customer_id": ...}`. Send the request from the server side (a form plugin's webhook setting or PHP), never from browser JavaScript, so the key stays private.
+Cement brands are keys (`birlaShakti`, `acc`, `dalmia`, `zuari`, `penna`, `ramco`, `chettinad`, `mahaShakti`, `birlaSuper`, `panyam`, `ultratech`, `indiaCements`) holding `[grade, qty]` rows; `steel`, `blocks`, `rmc` and `bindingWire` hold `[brand, grade, qty]`; `sand` and `aggregates` hold `[grade, qty]`. Products are matched on brand + grade (ignoring case and spaces), quantities are kept and prices start at 0 for the team to fill in. Anything that doesn't match a product is listed in the enquiry's remarks instead of being dropped. The Retool version of this workflow was switched off and forced every quantity to 100 with placeholder prices; this one doesn't.
+
+The Create Enquiry JSON (`customerName`, `customerPhone`, `billingAddress`, `deliveryAddress`, `items` with `product_id` or category/brand/grade) is accepted too. A customer with the same mobile number is reused, so repeat enquiries don't create duplicates. The reply is `201 {"success": true, "enquiry_id": ..., "customer_id": ...}`. Send the request from the server side (a form plugin's webhook setting or PHP), never from browser JavaScript, so the key stays private.
 
 ## WhatsApp messages
 
@@ -97,9 +98,10 @@ npm run typecheck
 | `lib/*.sql` queries | `server/routes/operations.ts`, `server/routes/masters.ts` (each handler names the queries it replaces) |
 | AiSensy REST queries | `server/messages.ts` |
 | Zoho Books REST queries | `server/integrations.ts`, `server/routes/masters.ts`, `server/workflows.ts` |
-| Workflow: create enquiry | `createEnquiryWorkflow` in `server/workflows.ts` |
-| Workflow: invoicing | `invoicingWorkflow` |
-| Workflow: loading slips | `loadingSlipWorkflow` (PDFs are generated on request by `server/pdf.ts`) |
+| [LIVE] Create Enquiry | `createEnquiryWorkflow` in `server/workflows.ts` |
+| [LIVE] External Enquiry Form | `externalEnquiryInput` + `/api/webhooks/enquiry` |
+| [LIVE] Zoho Books Invoicing Workflow | `invoicingWorkflow` |
+| [LIVE] [v2] Loading Slip Generation (and the older Loading Slip Workflow) | `loadingSlipWorkflow`; the PDF layout is in `server/pdf.ts` |
 | Workflow: import Zoho customer | `importZohoCustomer` |
 | Workflow: sync products with Zoho | `syncZohoProducts` |
 | Retool Storage (invoice PDFs) | streamed from Zoho Books on request through a signed link |
@@ -107,12 +109,19 @@ npm run typecheck
 
 Status codes are the ones already in the database: enquiries `0` ongoing, `1` past, `5` deleted; orders `1` ongoing, `2` in transit, `3` delivered, `5` deleted.
 
-The five workflows' own source was not in the Retool export, so they are rebuilt from what the app sends them and reads back. Compare them with the Retool originals (Retool → Workflows → export JSON) before switching over, especially the Zoho invoice fields and the loading slip numbering.
+The workflows follow their Retool exports step by step:
+
+- **Create Enquiry:** an existing customer (numeric ID) only gets a missing phone filled in; GSTIN, PAN and TCS are not overwritten. The billing address is updated, the shipping address is reused when identical, and the site is updated or created. New customers get billing and shipping addresses and a site. Items are stored with `total_price` and status `0`. No Zoho calls.
+- **Zoho Books invoicing:** creates the Zoho contact if the customer has none (GST or non-GST treatment), syncs the phone, billing and shipping addresses, marks the contact active, then creates the invoice with ex-tax rates (`unit_price / (1 + gst_rate/100)`, 3 decimals), the same custom fields (warehouse, PO number, PAN, vehicle number, delivery terms) and the TCS variant for TCS customers. It saves the invoice (amount, TCS flag, Zoho ID, number, URL), marks it sent, and sets the order to in transit with payment type `invoice`. A Zoho customer ID that no longer exists in Zoho gives "Invoice Generation failed due to Customer Conflict".
+- **Loading slips:** deletes the order's previous slip and creates one slip item per brand that the order contains **and** the warehouse is set up for (Warehouses → brands), as Retool did. Brands not set up for the warehouse are named in the response. The PDF matches the Retool HTML template.
+
+`total_price` on enquiry and order items works whether it is a generated column or a plain one (it's plain in the Retool DB).
 
 ## Before switching off Retool
 
 - [ ] Set the environment variables above and redeploy.
 - [ ] Sign in and check the order, enquiry and customer counts match Retool.
-- [ ] Compare the five rebuilt workflows with their Retool exports (invoice fields, loading slip numbering, how the enquiry workflow fills customer and address fields).
+- [ ] Put the Zoho credentials in Vercel (`ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN`), then generate a new client secret and refresh token in the Zoho API console: the old ones are written in plain text inside the invoicing workflow export.
+- [ ] Check every brand the warehouses dispatch is listed on the Warehouses page, or those brands get no loading slip.
 - [ ] Run one real order end to end: enquiry → order → loading slips → invoice → WhatsApp to customer and transporter → delivery OTP.
 - [ ] Rotate the AiSensy API key (it was stored in plain text inside the Retool export).

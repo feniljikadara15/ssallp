@@ -70,7 +70,10 @@ function explainConnectionError(e: any) {
 // is left alone.
 async function setUpEmptyDatabase(db: Driver) {
   const [{ ready }] = await db.query("SELECT to_regclass('public.orders') IS NOT NULL AS ready");
-  if (ready) return seedIfRequested(db);
+  if (ready) {
+    await addMissingColumns(db);
+    return seedIfRequested(db);
+  }
   const { SCHEMA_SQL } = await import("./schemaSql.js");
   const { STATES } = await import("./demoSeed.js");
   await db.query(SCHEMA_SQL);
@@ -87,6 +90,14 @@ async function setUpEmptyDatabase(db: Driver) {
   );
   console.log("Created the OMS tables in an empty database");
   await seedIfRequested(db);
+}
+
+// Columns the Retool workflows write that databases created by earlier versions
+// of this app lack. Adding nullable columns is a no-op on the Retool DB.
+async function addMissingColumns(db: Driver) {
+  await db.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount NUMERIC, ADD COLUMN IF NOT EXISTS tcs_status BOOLEAN, ADD COLUMN IF NOT EXISTS invoice_date TIMESTAMPTZ;
+    ALTER TABLE enquiry_items ADD COLUMN IF NOT EXISTS status TEXT;
+    ALTER TABLE loading_slips ADD COLUMN IF NOT EXISTS regenerated_count INTEGER DEFAULT 0;`);
 }
 
 // SEED_DEMO_DATA=true fills an EMPTY database (no customers, orders or
@@ -137,7 +148,8 @@ export async function columnsOf(table: string) {
   let cols = columnCache.get(table);
   if (!cols) {
     const rows = await q<{ column_name: string }>(
-      "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1",
+      // Generated columns (total_price in some databases) can't be written.
+      "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = $1 AND is_generated = 'NEVER'",
       [table],
     );
     cols = new Set(rows.map((r) => r.column_name));

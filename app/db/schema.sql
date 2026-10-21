@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS enquiry_items (
   quantity NUMERIC,
   unit_price NUMERIC,
   total_price NUMERIC GENERATED ALWAYS AS (quantity * unit_price) STORED,
+  status TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   is_active BOOLEAN NOT NULL DEFAULT TRUE
@@ -196,6 +197,9 @@ CREATE TABLE IF NOT EXISTS invoices (
   zb_invoice_number TEXT,
   zb_invoice_url TEXT,
   pdf_invoice_url TEXT,
+  amount NUMERIC,
+  tcs_status BOOLEAN,
+  invoice_date TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   is_active BOOLEAN NOT NULL DEFAULT TRUE
@@ -249,6 +253,7 @@ CREATE TABLE IF NOT EXISTS loading_slips (
   warehouse_id INTEGER,
   transporter_id INTEGER,
   loading_slip_date DATE,
+  regenerated_count INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   is_active BOOLEAN NOT NULL DEFAULT TRUE
