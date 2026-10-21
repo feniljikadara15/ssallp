@@ -16,7 +16,7 @@ export default function TransporterVehicles() {
 
   return (
     <div>
-      <PageHeader title="Vehicles" description="Every transporter vehicle. Add or remove them on the Transporters page." />
+      <PageHeader title="Transporter Vehicle Details" description="Every transporter vehicle. Add or remove them on the Transporters page." />
       <Card>
         <div className="flex flex-wrap items-center gap-2 border-b border-black/[0.05] p-3">
           <div className="w-full sm:w-80"><SearchInput value={q} onChange={setQ} placeholder="Search vehicle number or transporter" /></div>

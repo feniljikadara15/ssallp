@@ -2,20 +2,23 @@ import {
   Banknote, CarFront, ClipboardCheck, LayoutDashboard, MessagesSquare, Package, Tag, Truck, UserRound, Users, Warehouse, type LucideIcon,
 } from "lucide-react";
 
+// Same sections and order as the Retool sidebar.
 export const NAV: { section: string; items: { to: string; label: string; icon: LucideIcon }[] }[] = [
-  { section: "Overview", items: [{ to: "/", label: "Dashboard", icon: LayoutDashboard }] },
-  { section: "Sales", items: [
+  { section: "Dashboard", items: [{ to: "/", label: "Dashboard", icon: LayoutDashboard }] },
+  { section: "Order Management", items: [
     { to: "/enquiries", label: "Enquiries", icon: MessagesSquare },
     { to: "/orders", label: "Orders", icon: ClipboardCheck },
-    { to: "/loading-slips", label: "Loading Slips", icon: Package },
-    { to: "/cash-bills", label: "Cash Bills", icon: Banknote },
   ] },
-  { section: "Master data", items: [
-    { to: "/customers", label: "Customers", icon: Users },
-    { to: "/products", label: "Products", icon: Tag },
+  { section: "Accounting", items: [{ to: "/cash-bills", label: "Cash Bills", icon: Banknote }] },
+  { section: "Logistics", items: [
     { to: "/warehouses", label: "Warehouses", icon: Warehouse },
-    { to: "/warehouse-keepers", label: "Warehouse Keepers", icon: UserRound },
     { to: "/transporters", label: "Transporters", icon: Truck },
-    { to: "/transporter-vehicles", label: "Vehicles", icon: CarFront },
+    { to: "/warehouse-keepers", label: "Warehouse Keepers", icon: UserRound },
+    { to: "/transporter-vehicles", label: "Transporter Vehicle Details", icon: CarFront },
+  ] },
+  { section: "Products", items: [{ to: "/products", label: "Products", icon: Tag }] },
+  { section: "Customers", items: [
+    { to: "/customers", label: "Customers", icon: Users },
+    { to: "/loading-slips", label: "Loading Slips", icon: Package },
   ] },
 ];

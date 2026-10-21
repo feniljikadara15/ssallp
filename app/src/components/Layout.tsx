@@ -53,7 +53,6 @@ function Sidebar({ onNavigate, onSearch, session }: { onNavigate?: () => void; o
                 >
                   {({ isActive }) => (
                     <>
-                      {isActive && <span className="absolute inset-y-1.5 left-0 w-[3px] rounded-full bg-primary" />}
                       <it.icon className={clsx("h-4 w-4 shrink-0", isActive ? "text-primary" : "text-white/45 group-hover:text-white/70")} />
                       {it.label}
                     </>

@@ -64,7 +64,7 @@ export default function Orders() {
       </PageHeader>
       <div className="grid items-start gap-5 lg:grid-cols-[360px_minmax(0,1fr)] [&>*]:min-w-0">
         <Card className="flex flex-col p-3 lg:sticky lg:top-0 lg:max-h-[calc(100vh-120px)]">
-          <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: (orders.data ?? []).filter((o) => o.order_status === t.value).length }))} />
+          <Tabs value={tab} onChange={(t) => { setTab(t); setSel(null); }} tabs={TABS.map((t) => ({ ...t, count: t.value === "5" ? undefined : (orders.data ?? []).filter((o) => o.order_status === t.value).length }))} />
           <div className="mt-3 space-y-2">
             <SearchInput value={party} onChange={setParty} placeholder="Search customer" />
             <div className="grid grid-cols-2 gap-2">

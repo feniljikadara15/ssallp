@@ -87,26 +87,51 @@ function Body({ data, chart }: { data: DashboardData; chart: { month: string; fu
       </div>
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <Section title="Sales and orders" description="Billed value and orders created, last 12 months">
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chart} margin={{ left: 0, right: 0, top: 8 }}>
-                <CartesianGrid vertical={false} stroke="#eef0f3" />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#8a90a0" }} tickLine={false} axisLine={false} />
-                <YAxis yAxisId="s" tickFormatter={(v) => inrShort(v)} tick={{ fontSize: 11, fill: "#8a90a0" }} tickLine={false} axisLine={false} width={56} />
-                <YAxis yAxisId="o" orientation="right" allowDecimals={false} tick={{ fontSize: 11, fill: "#8a90a0" }} tickLine={false} axisLine={false} width={28} />
-                <Tooltip cursor={{ fill: "rgba(242,98,34,0.05)" }} content={<ChartTip />} />
-                <Bar yAxisId="s" dataKey="sales" name="Sales" fill="#f26222" radius={[5, 5, 0, 0]} maxBarSize={36} />
-                <Line yAxisId="o" dataKey="orders" name="Orders" type="monotone" stroke="#292f45" strokeWidth={2} dot={{ r: 2.5, fill: "#292f45" }} activeDot={{ r: 4 }} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-2 flex items-center gap-4 text-2xs text-gray-500">
-            <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-primary" />Sales (₹)</span>
-            <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-3 rounded bg-secondary" />Orders</span>
-          </div>
-        </Section>
-
+        <div className="min-w-0 space-y-5">
+          <Section title="Sales and orders" description="Billed value and orders created, last 12 months">
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chart} margin={{ left: 0, right: 0, top: 8 }}>
+                  <CartesianGrid vertical={false} stroke="#eef0f3" />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#8a90a0" }} tickLine={false} axisLine={false} />
+                  <YAxis yAxisId="s" tickFormatter={(v) => inrShort(v)} tick={{ fontSize: 11, fill: "#8a90a0" }} tickLine={false} axisLine={false} width={56} />
+                  <YAxis yAxisId="o" orientation="right" allowDecimals={false} tick={{ fontSize: 11, fill: "#8a90a0" }} tickLine={false} axisLine={false} width={28} />
+                  <Tooltip cursor={{ fill: "rgba(242,98,34,0.05)" }} content={<ChartTip />} />
+                  <Bar yAxisId="s" dataKey="sales" name="Sales" fill="#f26222" radius={[5, 5, 0, 0]} maxBarSize={36} />
+                  <Line yAxisId="o" dataKey="orders" name="Orders" type="monotone" stroke="#292f45" strokeWidth={2} dot={{ r: 2.5, fill: "#292f45" }} activeDot={{ r: 4 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-2 flex items-center gap-4 text-2xs text-gray-500">
+              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-sm bg-primary" />Sales (₹)</span>
+              <span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-3 rounded bg-secondary" />Orders</span>
+            </div>
+          </Section>
+          <Section title="Recent orders" actions={<Link to="/orders" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">View all <ArrowRight className="h-3.5 w-3.5" /></Link>} bodyClassName="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-black/[0.06] bg-gray-50/70 text-left text-2xs uppercase tracking-wide text-gray-500">
+                    <th className="px-4 py-2.5 font-medium">Order</th><th className="px-4 py-2.5 font-medium">Customer</th><th className="px-4 py-2.5 font-medium">Date</th>
+                    <th className="px-4 py-2.5 font-medium">Status</th><th className="px-4 py-2.5 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.recent.map((o) => (
+                    <tr key={o.order_id} className="border-b border-black/[0.04] last:border-0 hover:bg-gray-50/80">
+                      <td className="px-4 py-2.5"><Link to={`/orders?id=${o.order_id}`} className="font-medium text-secondary hover:text-primary">#{o.order_id}</Link></td>
+                      <td className="max-w-[240px] truncate px-4 py-2.5 text-secondary">{o.customer_name}</td>
+                      <td className="tabular px-4 py-2.5 text-gray-500">{fmtDate(o.order_date)}</td>
+                      <td className="px-4 py-2.5"><Badge dot tone={STATUS[o.order_status]?.tone}>{STATUS[o.order_status]?.label ?? o.order_status}</Badge></td>
+                      <td className="tabular px-4 py-2.5 text-right font-medium text-secondary">{inr(o.total_amount ?? o.items_value)}</td>
+                    </tr>
+                  ))}
+                  {!data.recent.length && <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">No orders yet</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </Section>
+        </div>
         <div className="space-y-5">
           <Section title="Needs attention" description={totalAttention ? `${totalAttention} item${totalAttention === 1 ? "" : "s"} waiting` : "Nothing waiting"} bodyClassName="p-2">
             {totalAttention === 0 ? (
@@ -155,31 +180,6 @@ function Body({ data, chart }: { data: DashboardData; chart: { month: string; fu
           </Link>
         </div>
       </div>
-
-      <Section title="Recent orders" actions={<Link to="/orders" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">View all <ArrowRight className="h-3.5 w-3.5" /></Link>} bodyClassName="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-black/[0.06] bg-gray-50/70 text-left text-2xs uppercase tracking-wide text-gray-500">
-                <th className="px-4 py-2.5 font-medium">Order</th><th className="px-4 py-2.5 font-medium">Customer</th><th className="px-4 py-2.5 font-medium">Date</th>
-                <th className="px-4 py-2.5 font-medium">Status</th><th className="px-4 py-2.5 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.recent.map((o) => (
-                <tr key={o.order_id} className="border-b border-black/[0.04] last:border-0 hover:bg-gray-50/80">
-                  <td className="px-4 py-2.5"><Link to={`/orders?id=${o.order_id}`} className="font-medium text-secondary hover:text-primary">#{o.order_id}</Link></td>
-                  <td className="max-w-[240px] truncate px-4 py-2.5 text-secondary">{o.customer_name}</td>
-                  <td className="tabular px-4 py-2.5 text-gray-500">{fmtDate(o.order_date)}</td>
-                  <td className="px-4 py-2.5"><Badge dot tone={STATUS[o.order_status]?.tone}>{STATUS[o.order_status]?.label ?? o.order_status}</Badge></td>
-                  <td className="tabular px-4 py-2.5 text-right font-medium text-secondary">{inr(o.total_amount ?? o.items_value)}</td>
-                </tr>
-              ))}
-              {!data.recent.length && <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">No orders yet</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </Section>
     </div>
   );
 }

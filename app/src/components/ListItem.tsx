@@ -14,7 +14,6 @@ export default function ListItem({ title, subtitle, right, rightSub, tag, active
         active ? "bg-primary-50/70 ring-1 ring-inset ring-primary/25" : "hover:bg-gray-50",
       )}
     >
-      {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-full bg-primary" />}
       <div className="min-w-0 flex-1">
         <div className={clsx("truncate text-[13px] font-medium", active ? "text-primary-700" : "text-secondary")}>{title}</div>
         {subtitle && <div className="mt-0.5 truncate text-2xs text-gray-500">{subtitle}</div>}
