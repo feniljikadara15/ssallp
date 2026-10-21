@@ -26,6 +26,7 @@ const TransporterVehicles = lazy(() => import("./pages/TransporterVehicles"));
 const Products = lazy(() => import("./pages/Products"));
 const Customers = lazy(() => import("./pages/Customers"));
 const LoadingSlips = lazy(() => import("./pages/LoadingSlips"));
+const Audit = lazy(() => import("./pages/Audit"));
 
 // Keeps a crash in one page from blanking the whole app.
 class PageBoundary extends React.Component<{ children: React.ReactNode; resetKey: string }, { error: Error | null }> {
@@ -79,6 +80,7 @@ function App() {
           <Route path="customers" element={<Page><Customers /></Page>} />
           <Route path="customers/:id" element={<Page><CustomerDetail /></Page>} />
           <Route path="loading-slips" element={<Page><LoadingSlips /></Page>} />
+          <Route path="audit" element={<Page><Audit /></Page>} />
           <Route path="*" element={<div className="card"><EmptyState title="Page not found" hint="The link may be old. Pick a page from the menu." action={<a href="#/" className="btn btn-sm">Go to the dashboard</a>} /></div>} />
         </Route>
       </Routes>

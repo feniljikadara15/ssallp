@@ -12,6 +12,7 @@ export interface Req {
   cookies: Record<string, string>;
   headers: Record<string, string | string[] | undefined>;
   origin: string;
+  ip?: string;
 }
 
 export interface Res {

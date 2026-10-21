@@ -1,10 +1,16 @@
 import { config, isDemo } from "./config.js";
+import { actorStore, AUDIT_SQL, isWrite, type Actor } from "./audit.js";
 
 export type Row = Record<string, any>;
 
 interface Driver {
   query(text: string, params?: unknown[]): Promise<Row[]>;
+  /** Runs one write in its own transaction, tagged with who made it for the audit trigger. */
+  tagged(actor: Actor, text: string, params?: unknown[]): Promise<Row[]>;
 }
+
+const TAG_SQL = "SELECT set_config('app.actor', $1, true), set_config('app.ip', $2, true), set_config('app.device', $3, true), set_config('app.request', $4, true)";
+const tagParams = (a: Actor) => [a.actor, a.ip, a.device, a.request];
 
 let driver: Promise<Driver> | null = null;
 
@@ -26,7 +32,24 @@ async function connectPg(): Promise<Driver> {
     query_timeout: 45_000,
   });
   pool.on("error", (e) => console.error("Idle database connection error:", e.message));
-  const driver: Driver = { query: async (text, params) => (await pool.query(text, params as any[])).rows };
+  const driver: Driver = {
+    query: async (text, params) => (await pool.query(text, params as any[])).rows,
+    tagged: async (actor, text, params) => {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(TAG_SQL, tagParams(actor));
+        const rows = (await client.query(text, params as any[])).rows;
+        await client.query("COMMIT");
+        return rows;
+      } catch (e) {
+        await client.query("ROLLBACK").catch(() => null);
+        throw e;
+      } finally {
+        client.release();
+      }
+    },
+  };
   try {
     await setUpEmptyDatabase(driver);
   } catch (e: any) {
@@ -72,6 +95,7 @@ async function setUpEmptyDatabase(db: Driver) {
   const [{ ready }] = await db.query("SELECT to_regclass('public.orders') IS NOT NULL AS ready");
   if (ready) {
     await addMissingColumns(db);
+    await installAudit(db);
     return seedIfRequested(db);
   }
   const { SCHEMA_SQL } = await import("./schemaSql.js");
@@ -90,6 +114,7 @@ async function setUpEmptyDatabase(db: Driver) {
   );
   console.log("Created the OMS tables in an empty database");
   await seedIfRequested(db);
+  await installAudit(db);
 }
 
 // Columns the Retool workflows write that databases created by earlier versions
@@ -98,6 +123,12 @@ async function addMissingColumns(db: Driver) {
   await db.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount NUMERIC, ADD COLUMN IF NOT EXISTS tcs_status BOOLEAN, ADD COLUMN IF NOT EXISTS invoice_date TIMESTAMPTZ;
     ALTER TABLE enquiry_items ADD COLUMN IF NOT EXISTS status TEXT;
     ALTER TABLE loading_slips ADD COLUMN IF NOT EXISTS regenerated_count INTEGER DEFAULT 0;`);
+}
+
+// The audit log is best-effort: a database user without the rights to add
+// triggers still gets a working app, just without the history.
+async function installAudit(db: Pick<Driver, "query">) {
+  try { await db.query(AUDIT_SQL); } catch (e: any) { console.error("Audit log not installed:", e.message); }
 }
 
 // SEED_DEMO_DATA=true fills an EMPTY database (no customers, orders or
@@ -122,7 +153,14 @@ async function connectDemo(): Promise<Driver> {
   const db = new PGlite({ parsers: { 1700: Number, 20: Number, 1082: (v: string) => v } });
   await db.exec(SCHEMA_SQL);
   await db.exec(demoSeedSql());
-  return { query: async (text, params) => (await db.query<Row>(text, params as any[])).rows };
+  await db.exec(AUDIT_SQL);
+  return {
+    query: async (text, params) => (await db.query<Row>(text, params as any[])).rows,
+    tagged: (actor, text, params) => db.transaction(async (tx) => {
+      await tx.query(TAG_SQL, tagParams(actor));
+      return (await tx.query<Row>(text, params as any[])).rows;
+    }),
+  };
 }
 
 function getDriver() {
@@ -134,7 +172,9 @@ function getDriver() {
 }
 
 export async function q<T extends Row = Row>(text: string, params: unknown[] = []): Promise<T[]> {
-  return (await (await getDriver()).query(text, params)) as T[];
+  const db = await getDriver();
+  const actor = actorStore.getStore();
+  return (actor && isWrite(text) ? await db.tagged(actor, text, params) : await db.query(text, params)) as T[];
 }
 
 export async function one<T extends Row = Row>(text: string, params: unknown[] = []): Promise<T | undefined> {

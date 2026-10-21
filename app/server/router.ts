@@ -1,4 +1,6 @@
 import { config, isDemo, whatsappConfigured, zohoConfigured, secret } from "./config.js";
+import { randomUUID } from "node:crypto";
+import { actorStore, deviceOf } from "./audit.js";
 import { HttpError, type Req, type Res } from "./http.js";
 import { authRequired, login, signToken, verifyToken, verifyPath, type User } from "./sign.js";
 
@@ -78,7 +80,8 @@ export async function handle(req: Req): Promise<Res> {
         else if (!authRequired()) user = { email: "demo@example.com", name: "Demo User" };
         else throw new HttpError(401, "Please sign in");
       }
-      const out = await r.handler({ ...req, params, user });
+      const actor = { actor: user?.email ?? "", ip: req.ip ?? "", device: deviceOf(String(req.headers["user-agent"] ?? "")), request: randomUUID() };
+      const out = await actorStore.run(actor, () => r.handler({ ...req, params, user }));
       if (out && typeof out === "object" && ("json" in out || "binary" in out || "status" in out)) return out as Res;
       return { json: out ?? { ok: true } };
     }

@@ -30,7 +30,7 @@ export async function nodeHandler(req: IncomingMessage & { body?: unknown }, res
     (req.headers.cookie || "").split(";").map((c) => c.trim().split("=")).filter((p) => p.length === 2).map(([k, v]) => [k, decodeURIComponent(v)]),
   );
 
-  const out = await handle({ method: req.method || "GET", path, query: url.searchParams, body, cookies, headers: req.headers, origin: `${proto}://${host}` });
+  const out = await handle({ method: req.method || "GET", path, query: url.searchParams, body, cookies, headers: req.headers, origin: `${proto}://${host}`, ip: String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim() || req.socket?.remoteAddress || "" });
   for (const [k, v] of Object.entries(out.headers ?? {})) res.setHeader(k, v);
   res.statusCode = out.status ?? 200;
   if (out.binary) {
