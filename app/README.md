@@ -19,6 +19,7 @@ The Vercel project's Root Directory must be `app`. Then add these environment va
 | `AISENSY_API_KEY` | for WhatsApp | The AiSensy API key (the Retool app had it hard-coded in its REST queries). |
 | `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `ZOHO_REFRESH_TOKEN` | for Zoho | A Zoho "Self Client" from https://api-console.zoho.in with scope `ZohoBooks.fullaccess.all`; exchange its code for a refresh token (steps below). |
 | `ZOHO_ORG_ID` | no | Defaults to `60031284196` (the org in the Retool queries). |
+| `ENQUIRY_WEBHOOK_KEY` | for the external form | Any long random string. The WordPress external form sends it to create enquiries (see below). |
 | `PUBLIC_BASE_URL` | no | e.g. `https://ssallp-seven.vercel.app`. Used in WhatsApp media links; defaults to the request's own host. |
 
 Without `DATABASE_URL` the app runs in **demo mode**: an embedded Postgres (PGlite) with sample data, no sign-in, and changes that reset when the server instance restarts.
@@ -32,6 +33,47 @@ Without `DATABASE_URL` the app runs in **demo mode**: an embedded Postgres (PGli
    curl -X POST "https://accounts.zoho.in/oauth/v2/token?grant_type=authorization_code&client_id=ID&client_secret=SECRET&code=CODE"
    ```
 4. Put the `refresh_token` from the response in `ZOHO_REFRESH_TOKEN`.
+
+## WordPress external form
+
+The external form used to call a Retool workflow. Point it at this app instead:
+
+- **URL:** `POST https://<your-domain>/api/webhooks/enquiry`
+- **Header:** `x-api-key: <ENQUIRY_WEBHOOK_KEY>`, plus `Content-Type: application/json`
+- **Body:** the same JSON the Retool enquiry workflow took, for example:
+
+```json
+{
+  "customerName": "Shree Builders",
+  "customerPhone": "+919812345678",
+  "gstin": "24ABCDE1234F1Z5",
+  "billingAddress": { "line1": "12 MG Road", "line2": "", "city": "Ahmedabad", "state": "Gujarat", "pincode": "380001" },
+  "deliveryAddress": { "siteName": "Tower A", "line1": "Plot 5", "city": "Ahmedabad", "state": "Gujarat", "pincode": "380015",
+                       "sitePersonName": "Raju", "sitePersonPhone": "+919800000002", "mapsLink": "https://maps.google.com/..." },
+  "items": [{ "category": "Cement", "brand": "UltraTech", "grade": "OPC 53", "quantity": 200, "unit_price": 395 }],
+  "deliveryDate": "2026-10-25"
+}
+```
+
+Items can name the product (category, brand, grade) or pass `product_id`. A customer with the same mobile number is reused, so repeat enquiries don't create duplicates. The reply is `201 {"success": true, "enquiry_id": ..., "customer_id": ...}`. Send the request from the server side (a form plugin's webhook setting or PHP), never from browser JavaScript, so the key stays private.
+
+## WhatsApp messages
+
+Sent through AiSensy with the same campaign names and parameters as the Retool queries:
+
+| When | Campaign |
+| --- | --- |
+| Enquiry › Notify Transporter | `[Live] New Enquiry Transporter Delivery Confirmation Request` |
+| Enquiry › Delete Enquiry | `Enquiry Rejection Customer Notification` |
+| Enquiry › Create Order | `customer_order_confirmation_notification` |
+| Order › Notify Transporter | `[Live] Order Pickup Transporter Notification` |
+| Loading slip › Send | `[Live] Loading Slip Warehouse Keeper Notification` (with the slip PDF) |
+| Loading slip › Cancel | `Cancel Loading Slip` |
+| Order › Send Invoice to › Customer | `new_invoice_pdf` (with the invoice PDF), then `deliver_otp_new` |
+| Order › Send Invoice to › Customer & Transporter | the two above, then `[Live] Transporter Invoice Notification` |
+| Cash bill › Send Delivery OTP | `deliver_otp_new` |
+
+A message counts as sent only when AiSensy replies `success: "true"`; anything else shows the reason on screen. 10-digit numbers get the 91 country code added.
 
 ## Local development
 

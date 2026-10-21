@@ -1,7 +1,7 @@
 // Enquiries, orders, loading slips and cash bills. Each handler notes the
 // Retool queries it replaces.
-import { randomInt } from "node:crypto";
-import { isDemo, zohoConfigured } from "../config.js";
+import { randomInt, timingSafeEqual } from "node:crypto";
+import { config, isDemo, zohoConfigured } from "../config.js";
 import { insertRow, one, q, updateRow, type Row } from "../db.js";
 import { HttpError, num, optNum, str } from "../http.js";
 import { zoho } from "../integrations.js";
@@ -10,7 +10,7 @@ import { loadingSlipPdf } from "../pdf.js";
 import { publicBase, route } from "../router.js";
 import { signPath } from "../sign.js";
 import { dmy } from "../messages.js";
-import { createEnquiryWorkflow, invoicingWorkflow, loadingSlipWorkflow, slipUrl } from "../workflows.js";
+import { createEnquiryWorkflow, fileSlug, invoicingWorkflow, loadingSlipWorkflow, slipUrl } from "../workflows.js";
 
 const DATE_RANGE = (col: string, a: number, b: number) =>
   `(NULLIF($${a}::text, '') IS NULL OR ${col}::date >= $${a}::date) AND (NULLIF($${b}::text, '') IS NULL OR ${col}::date <= $${b}::date)`;
@@ -264,7 +264,7 @@ route("POST", "/api/orders/:id/notify-transporter", async ({ params }) => msg.no
 
 // triggerLoadingSlipWorkflow
 route("POST", "/api/orders/:id/loading-slips", async ({ params, body }) => {
-  const res = await loadingSlipWorkflow(num(params.id), str(body.date) ?? new Date().toISOString().slice(0, 10));
+  const res = await loadingSlipWorkflow(num(params.id), str(body.date) ?? new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }));
   return { message: `${res.count} loading slip${res.count === 1 ? "" : "s"} created` };
 });
 
@@ -281,12 +281,14 @@ async function slipRow(itemId: number) {
   return row;
 }
 
-// sendLoadingSlipToWarehouseKeeper + updateLoadingSlipStatus
+// sendLoadingSlipToWarehouseKeeper + updateLoadingSlipStatus. As in Retool, the slip
+// is only marked Sent when AiSensy confirms the message.
 route("POST", "/api/loading-slip-items/:id/send", async (req) => {
   const row = await slipRow(num(req.params.id));
-  if (!row.warehouse_keeper_phone) throw new HttpError(400, `No warehouse keeper is assigned to ${row.brand} at this warehouse. Set it on the Warehouses page.`);
-  const res = await msg.sendLoadingSlipToKeeper(row as any, slipUrl(publicBase(req), row as any));
-  await q("UPDATE loading_slip_items SET status = 'Sent', updated_at = NOW() WHERE loading_slip_item_id = $1", [row.loading_slip_item_id]);
+  if (row.status === "Cancelled") throw new HttpError(400, `Loading Slip ${row.loading_slip_file_name} is cancelled`);
+  if (!row.warehouse_keeper_phone) throw new HttpError(400, `No warehouse keeper phone number is assigned for ${row.brand} at this warehouse. Set it on the Warehouses page.`);
+  const res = await msg.sendLoadingSlipToKeeper(row as any, slipUrl(publicBase(req), row));
+  if (res.sent || isDemo()) await q("UPDATE loading_slip_items SET status = 'Sent', updated_at = NOW() WHERE loading_slip_item_id = $1", [row.loading_slip_item_id]);
   return { message: `Loading Slip ${row.loading_slip_file_name} sent to Warehouse Keeper`, whatsapp: res };
 });
 
@@ -300,8 +302,8 @@ route("POST", "/api/loading-slip-items/:id/cancel", async ({ params }) => {
   return { message: `Loading Slip ${row.loading_slip_file_name} cancelled`, whatsapp: res };
 });
 
-route("GET", "/api/loading-slip-items/:id/pdf", async ({ params }) => {
-  const row = await slipRow(num(params.id));
+async function slipPdf(itemId: number) {
+  const row = await slipRow(itemId);
   const o = (await one(
     `SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, s.site_name, s.site_person_name, s.site_person_contact,
             a.line1, a.line2, a.city, a.state, a.pincode, a.maps_link, w.name AS warehouse_name,
@@ -328,7 +330,30 @@ route("GET", "/api/loading-slip-items/:id/pdf", async ({ params }) => {
     items: items.map((i) => ({ category: i.category, brand: i.brand, grade: i.grade, quantity: Number(i.quantity), unit: i.unit })),
   });
   return { binary: { data: pdf, contentType: "application/pdf", filename: `${row.loading_slip_file_name}.pdf` } };
-});
+}
+
+// downloadInvoice: the Zoho invoice PDF, streamed instead of copied to Retool Storage
+async function invoicePdf(orderId: number) {
+  const inv = await one("SELECT i.* FROM orders o JOIN invoices i ON i.invoice_id = o.invoice_id WHERE o.order_id = $1", [orderId]);
+  if (!inv) throw new HttpError(404, "This order has no invoice");
+  if (!zohoConfigured()) throw new HttpError(503, isDemo() ? "Demo mode: invoice PDFs come from Zoho Books" : "Zoho Books is not configured");
+  const pdf = await zoho<Buffer>("GET", `invoices/pdf?invoice_ids=${inv.zb_invoice_id}`, undefined, true);
+  return { binary: { data: pdf, contentType: "application/pdf", filename: `${inv.zb_invoice_number || inv.zb_invoice_id}.pdf` } };
+}
+
+// Signed in-app links and public links ending in .pdf (what WhatsApp is sent).
+route("GET", "/api/loading-slip-items/:id/pdf", async ({ params }) => slipPdf(num(params.id)));
+route("GET", "/api/files/loading-slips/:id/:name", async ({ params }) => slipPdf(num(params.id)));
+route("GET", "/api/orders/:id/invoice.pdf", async ({ params }) => invoicePdf(num(params.id)));
+route("GET", "/api/files/invoices/:id/:name", async ({ params }) => invoicePdf(num(params.id)));
+
+async function invoicePublicUrl(origin: string, orderId: number) {
+  const inv = await one("SELECT i.invoice_id, i.zb_invoice_id, i.zb_invoice_number FROM orders o JOIN invoices i ON i.invoice_id = o.invoice_id WHERE o.order_id = $1", [orderId]);
+  if (!inv) throw new HttpError(400, "Generate the invoice first");
+  return { inv, url: origin + signPath(`/api/files/invoices/${orderId}/${fileSlug(inv.zb_invoice_number || inv.zb_invoice_id || "invoice")}.pdf`) };
+}
+
+route("GET", "/api/orders/:id/invoice-link", async (req) => ({ url: (await invoicePublicUrl(publicBase(req), num(req.params.id))).url }));
 
 const newOtp = () => String(randomInt(100000, 1000000));
 
@@ -357,32 +382,43 @@ route("POST", "/api/orders/:id/cash-bill", async ({ params }) => {
 // markAsDelivered after the OTP check in deliveryModal
 route("POST", "/api/orders/:id/deliver", async ({ params, body }) => {
   const id = num(params.id);
-  const o = await one("SELECT otp FROM orders WHERE order_id = $1", [id]);
+  const o = await one("SELECT otp, order_status FROM orders WHERE order_id = $1", [id]);
   if (!o) throw new HttpError(404, "Order not found");
-  if (String(body.otp ?? "").trim() !== String(o.otp ?? "")) throw new HttpError(400, "Incorrect OTP");
+  if (o.order_status !== "2") throw new HttpError(400, "Only in-transit orders can be marked as delivered");
+  if (!o.otp || String(body.otp ?? "").trim() !== String(o.otp)) throw new HttpError(400, "Incorrect OTP");
   await q("UPDATE orders SET order_status = '3' WHERE order_id = $1", [id]);
   return { message: "Order marked as delivered" };
 });
 
-// sendInvoiceButton: "Customer (with OTP)" and "Customer (with OTP) & Transporter"
-route("POST", "/api/orders/:id/send-invoice", async ({ params, body }) => {
-  const id = num(params.id);
-  const results = [];
-  if (body.to === "customer_transporter") results.push(await msg.sendInvoiceToTransporter(id));
-  results.push(await msg.notifyCustomer(id));
-  return { message: results.map((r) => r.note).join(" · ") };
+// "Send Invoice to..." menu. Same steps as the Retool scripts: invoice PDF link
+// (stored in invoices.pdf_invoice_url) → new_invoice_pdf to the customer →
+// deliver_otp_new → for the second option, the transporter's invoice message.
+// Stops at the first failure and reports what was already sent.
+route("POST", "/api/orders/:id/send-invoice", async (req) => {
+  const id = num(req.params.id);
+  const { inv, url } = await invoicePublicUrl(publicBase(req), id);
+  if (zohoConfigured()) await invoicePdf(id); // fail early if Zoho can't produce the PDF
+  await q("UPDATE invoices SET pdf_invoice_url = $1 WHERE invoice_id = $2", [url, inv.invoice_id]);
+  const done: string[] = [];
+  const step = async (label: string, fn: () => Promise<{ sent: boolean; note: string }>) => {
+    try {
+      const r = await fn();
+      done.push(r.sent ? label : `${label} (${r.note})`);
+    } catch (e: any) {
+      throw new HttpError(e.status ?? 502, `${e.message}${done.length ? `. Already sent: ${done.join(", ")}` : ""}`);
+    }
+  };
+  await step("invoice to customer", () => msg.sendInvoicePdfToCustomer(id, url));
+  await step("delivery OTP", () => msg.sendDeliveryOtp(id));
+  if (req.body.to === "customer_transporter") await step("invoice to transporter", () => msg.sendInvoiceToTransporter(id));
+  return { message: `Sent: ${done.join(", ")}` };
 });
 
-// downloadInvoice (Zoho PDF), served directly instead of via Retool Storage
-route("GET", "/api/orders/:id/invoice.pdf", async ({ params }) => {
-  const inv = await one("SELECT i.* FROM orders o JOIN invoices i ON i.invoice_id = o.invoice_id WHERE o.order_id = $1", [num(params.id)]);
-  if (!inv) throw new HttpError(404, "This order has no invoice");
-  if (!zohoConfigured()) throw new HttpError(503, isDemo() ? "Demo mode: invoice PDFs come from Zoho Books" : "Zoho Books is not configured");
-  const pdf = await zoho<Buffer>("GET", `invoices/pdf?invoice_ids=${inv.zb_invoice_id}`, undefined, true);
-  return { binary: { data: pdf, contentType: "application/pdf", filename: `${inv.zb_invoice_number || inv.zb_invoice_id}.pdf` } };
+// Cash bills have no Zoho invoice, so the OTP goes on its own.
+route("POST", "/api/orders/:id/send-otp", async ({ params }) => {
+  const r = await msg.sendDeliveryOtp(num(params.id));
+  return { message: r.sent ? "Delivery OTP sent to the customer" : r.note, whatsapp: r };
 });
-
-route("GET", "/api/orders/:id/invoice-link", async (req) => ({ url: publicBase(req) + signPath(`/api/orders/${num(req.params.id)}/invoice.pdf`) }));
 
 // ongoing / transit / deliveredOrderDetailsForExport
 route("GET", "/api/orders-export", async ({ query }) => {
@@ -530,3 +566,23 @@ route("GET", "/api/cash-bills-export", async ({ query }) => {
     [query.get("start") ?? "", query.get("end") ?? ""],
   );
 });
+
+// ------------------------------------------------------------ external enquiries
+
+// Replaces the Retool workflow webhook used by the WordPress external form.
+// Accepts the same JSON as triggerEnquiryWorkflow; send the key in an
+// "x-api-key" header (or ?key=). Items may name products by category/brand/grade.
+route("POST", "/api/webhooks/enquiry", async ({ headers, query, body }) => {
+  if (!config.enquiryWebhookKey) throw new HttpError(503, "External enquiries are not enabled. Set ENQUIRY_WEBHOOK_KEY.");
+  const given = String(headers["x-api-key"] ?? query.get("key") ?? "");
+  const a = Buffer.from(given), b = Buffer.from(config.enquiryWebhookKey);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) throw new HttpError(401, "Invalid API key");
+  const res = await createEnquiryWorkflow({
+    ...body,
+    customerID: body.customerID ?? body.customerName,
+    deliveryAddress: { siteId: null, siteName: body.deliveryAddress?.siteName || body.deliveryAddress?.city || "Site", ...(body.deliveryAddress ?? {}) },
+    billingAddress: body.billingAddress ?? {},
+    source: body.source && body.source !== "Internal" ? body.source : "External",
+  });
+  return { status: 201, json: { success: true, ...res } };
+}, { isPublic: true });

@@ -10,6 +10,7 @@ export interface Req {
   query: URLSearchParams;
   body: any;
   cookies: Record<string, string>;
+  headers: Record<string, string | string[] | undefined>;
   origin: string;
 }
 

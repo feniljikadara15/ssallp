@@ -79,7 +79,7 @@ async function orderCtx(orderId: number) {
     `SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, e.delivery_date,
             t.name AS transporter_name, t.phone_number AS transporter_phone, v.vehicle_number, w.name AS warehouse_name,
             s.site_person_contact, a.line1, a.line2, a.city, a.state, a.pincode, a.maps_link,
-            i.zb_invoice_number, i.zb_invoice_url
+            i.zb_invoice_id, i.zb_invoice_number, i.zb_invoice_url
        FROM orders o
        JOIN customers c ON c.customer_id = o.customer_id
        LEFT JOIN enquiries e ON e.enquiry_id = o.enquiry_id
@@ -118,6 +118,38 @@ export async function notifyTransporter(orderId: number) {
   });
 }
 
+// notifyCustomer3: the invoice PDF to the customer ("Send Invoice to... > Customer").
+// The second parameter is the Zoho invoice ID, as in the Retool query.
+export async function sendInvoicePdfToCustomer(orderId: number, pdfUrl: string) {
+  const o = await orderCtx(orderId);
+  return sendWhatsApp({
+    campaignName: "new_invoice_pdf",
+    destination: phoneDigits(o.customer_phone),
+    userName: o.customer_name || "Customer",
+    templateParams: [o.customer_name || "Customer", String(o.zb_invoice_id || ""), await orderItemsString(orderId), ddmmyyyy(o.delivery_date), o.transporter_name || "", o.transporter_phone || "", o.vehicle_number || ""],
+    source: "ssallp-retool",
+    media: { url: pdfUrl, filename: "invoice pdf" },
+    paramsFallbackValue: { FirstName: "user" },
+  });
+}
+
+// sendDeliveryOTP: the delivery OTP, also used as the template's URL button parameter.
+export async function sendDeliveryOtp(orderId: number) {
+  const o = await orderCtx(orderId);
+  if (!o.otp) throw new HttpError(400, "This order has no delivery OTP yet");
+  return sendWhatsApp({
+    campaignName: "deliver_otp_new",
+    destination: phoneDigits(o.customer_phone),
+    userName: o.customer_name,
+    templateParams: [String(o.otp)],
+    source: "ssallp-retool",
+    buttons: [{ type: "button", sub_type: "URL", index: 0, parameters: [{ type: "text", text: String(o.otp) }] }],
+    paramsFallbackValue: { FirstName: "Customer" },
+  });
+}
+
+// Older "[LIVE] Customer Order & OTP Details Notification" template, kept for reference;
+// the Retool app's Send Invoice menu had moved to new_invoice_pdf + deliver_otp_new.
 export async function notifyCustomer(orderId: number) {
   const o = await orderCtx(orderId);
   return sendWhatsApp({

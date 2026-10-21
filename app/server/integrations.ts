@@ -15,7 +15,14 @@ export interface WhatsAppMessage {
   paramsFallbackValue?: Record<string, string>;
 }
 
-export const phoneDigits = (p: unknown) => String(p ?? "").replace("+", "").replace(/\s/g, "");
+// AiSensy wants the number with country code and no "+", e.g. 919812345678.
+// Numbers saved as plain 10-digit mobiles get India's 91 added.
+export function phoneDigits(p: unknown) {
+  const digits = String(p ?? "").replace(/\D/g, "");
+  if (digits.length === 10) return `91${digits}`;
+  if (digits.length === 11 && digits.startsWith("0")) return `91${digits.slice(1)}`;
+  return digits;
+}
 
 export async function sendWhatsApp(msg: WhatsAppMessage): Promise<{ sent: boolean; note: string }> {
   if (!msg.destination) throw new HttpError(400, `No phone number to send "${msg.campaignName}" to`);
@@ -36,7 +43,13 @@ export async function sendWhatsApp(msg: WhatsAppMessage): Promise<{ sent: boolea
   };
   const res = await fetch(config.aisensyUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const text = await res.text();
-  if (!res.ok) throw new HttpError(502, `WhatsApp send failed (${res.status}): ${text.slice(0, 300)}`);
+  let data: any = null;
+  try { data = JSON.parse(text); } catch {}
+  // AiSensy answers {"success":"true",...}; anything else means the message didn't go out.
+  if (!res.ok || (data && String(data.success) !== "true")) {
+    const reason = data?.errorMessage ?? data?.message ?? data?.error ?? text.slice(0, 300);
+    throw new HttpError(502, `WhatsApp "${msg.campaignName}" to ${msg.destination} failed: ${reason}`);
+  }
   return { sent: true, note: `Message sent to ${msg.destination}` };
 }
 

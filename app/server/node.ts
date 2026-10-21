@@ -10,19 +10,27 @@ export async function nodeHandler(req: IncomingMessage & { body?: unknown }, res
   const path = url.searchParams.get("__route") !== null ? `/api/${url.searchParams.get("__route")}` : url.pathname;
   url.searchParams.delete("__route");
 
-  let body: unknown = req.body;
-  if (body === undefined && req.method !== "GET" && req.method !== "HEAD") {
-    const chunks: Buffer[] = [];
-    for await (const c of req) chunks.push(c as Buffer);
-    const raw = Buffer.concat(chunks).toString();
-    body = raw ? JSON.parse(raw) : {};
-  } else if (typeof body === "string") body = body ? JSON.parse(body) : {};
+  let body: unknown;
+  try {
+    body = req.body; // Vercel parses JSON bodies itself (and throws on bad JSON)
+    if (body === undefined && req.method !== "GET" && req.method !== "HEAD") {
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      const raw = Buffer.concat(chunks).toString();
+      body = raw ? JSON.parse(raw) : {};
+    } else if (typeof body === "string") body = body ? JSON.parse(body) : {};
+  } catch {
+    res.statusCode = 400;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ error: "Request body is not valid JSON" }));
+    return;
+  }
 
   const cookies = Object.fromEntries(
     (req.headers.cookie || "").split(";").map((c) => c.trim().split("=")).filter((p) => p.length === 2).map(([k, v]) => [k, decodeURIComponent(v)]),
   );
 
-  const out = await handle({ method: req.method || "GET", path, query: url.searchParams, body, cookies, origin: `${proto}://${host}` });
+  const out = await handle({ method: req.method || "GET", path, query: url.searchParams, body, cookies, headers: req.headers, origin: `${proto}://${host}` });
   for (const [k, v] of Object.entries(out.headers ?? {})) res.setHeader(k, v);
   res.statusCode = out.status ?? 200;
   if (out.binary) {

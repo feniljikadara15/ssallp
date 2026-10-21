@@ -40,16 +40,40 @@ export interface EnquiryInput {
   tcsStatus?: boolean;
   billingAddress: { line1: string; line2?: string; state: string; city: string; pincode: string };
   deliveryAddress: { siteId: number | string | null; siteName: string; line1?: string; line2?: string; state?: string; city?: string; pincode?: string; sitePersonName?: string; sitePersonPhone?: string; mapsLink?: string };
-  items: { product_id: number; quantity: number; unit_price: number }[];
+  items: { product_id?: number; category?: string; brand?: string; grade?: string; product_name?: string; quantity: number; unit_price?: number }[];
   deliveryDate: string;
   remarks?: string | null;
   source?: string;
+}
+
+// Items come with a product_id (internal form) or category/brand/grade names
+// (external form); both resolve to an active product.
+async function resolveItems(raw: EnquiryInput["items"]) {
+  const out: { product_id: number; quantity: number; unit_price: number }[] = [];
+  for (const it of raw as any[]) {
+    let productId = optNum(it.product_id);
+    if (!productId && (it.brand || it.grade || it.product_name)) {
+      const p = await one(
+        `SELECT product_id FROM products WHERE is_active = TRUE AND (
+           (LOWER(brand) = LOWER($1) AND LOWER(grade) = LOWER($2) AND ($3::text IS NULL OR LOWER(category) = LOWER($3)))
+           OR LOWER(product_name) = LOWER($4)) ORDER BY product_id LIMIT 1`,
+        [str(it.brand) ?? "", str(it.grade) ?? "", str(it.category), str(it.product_name) ?? ""],
+      );
+      productId = p?.product_id ?? null;
+    }
+    if (!productId) throw new HttpError(400, `Unknown product: ${[it.category, it.brand, it.grade, it.product_name].filter(Boolean).join(" / ") || JSON.stringify(it)}`);
+    const quantity = num(it.quantity, "quantity");
+    if (quantity <= 0) throw new HttpError(400, "Item quantity must be more than zero");
+    out.push({ product_id: productId, quantity, unit_price: optNum(it.unit_price) ?? 0 });
+  }
+  return out;
 }
 
 export async function createEnquiryWorkflow(input: EnquiryInput) {
   if (!input.items?.length) throw new HttpError(400, "Add at least one item");
   if (!str(input.customerName) && !optNum(input.customerID)) throw new HttpError(400, "Customer is required");
   if (!str(input.customerPhone)) throw new HttpError(400, "Customer phone is required");
+  const items = await resolveItems(input.items);
 
   // Customer: existing (numeric id) or new
   const existingId = optNum(input.customerID);
@@ -62,10 +86,18 @@ export async function createEnquiryWorkflow(input: EnquiryInput) {
     tcs_status: !!input.tcsStatus,
     updated_at: new Date(),
   };
+  // Reuse the customer picked in the form; otherwise match on the mobile number
+  // (last 10 digits) so repeat enquiries don't create duplicate customers.
+  const mobile = String(input.customerPhone ?? "").replace(/\D/g, "").slice(-10);
+  const matchId = existingId && (await one("SELECT 1 FROM customers WHERE customer_id = $1", [existingId]))
+    ? existingId
+    : mobile.length === 10
+      ? (await one("SELECT customer_id FROM customers WHERE RIGHT(regexp_replace(COALESCE(phone, ''), '\\D', '', 'g'), 10) = $1 ORDER BY is_active DESC, customer_id LIMIT 1", [mobile]))?.customer_id
+      : undefined;
   let customer: Row;
-  if (existingId && (await one("SELECT 1 FROM customers WHERE customer_id = $1", [existingId]))) {
-    await updateRow("customers", "customer_id", existingId, customerFields);
-    customer = (await one("SELECT * FROM customers WHERE customer_id = $1", [existingId]))!;
+  if (matchId) {
+    await updateRow("customers", "customer_id", matchId, customerFields);
+    customer = (await one("SELECT * FROM customers WHERE customer_id = $1", [matchId]))!;
   } else {
     customer = await insertRow("customers", {
       name: str(input.customerName),
@@ -123,8 +155,8 @@ export async function createEnquiryWorkflow(input: EnquiryInput) {
     updated_at: new Date(),
     is_active: true,
   });
-  for (const it of input.items)
-    await insertRow("enquiry_items", { enquiry_id: enquiry.enquiry_id, product_id: num(it.product_id, "product"), quantity: num(it.quantity, "quantity"), unit_price: num(it.unit_price, "price"), created_at: new Date(), updated_at: new Date(), is_active: true });
+  for (const it of items)
+    await insertRow("enquiry_items", { enquiry_id: enquiry.enquiry_id, product_id: it.product_id, quantity: it.quantity, unit_price: it.unit_price, created_at: new Date(), updated_at: new Date(), is_active: true });
   return { enquiry_id: enquiry.enquiry_id as number, customer_id: customerId };
 }
 
@@ -243,8 +275,11 @@ export async function loadingSlipWorkflow(orderId: number, slipDate: string) {
 
 // Stored "PDF:<id>" urls are generated on request; anything else is an
 // external link (for example slips created by the old Retool workflow).
+export const fileSlug = (s: string) => String(s).replace(/[^A-Za-z0-9._-]+/g, "-");
 export const slipUrl = (origin: string, row: Row): string =>
-  !row.url || String(row.url).startsWith("PDF:") ? origin + signPath(`/api/loading-slip-items/${row.loading_slip_item_id}/pdf`) : row.url;
+  !row.url || String(row.url).startsWith("PDF:")
+    ? origin + signPath(`/api/files/loading-slips/${row.loading_slip_item_id}/${fileSlug(row.loading_slip_file_name || "loading-slip")}.pdf`)
+    : row.url;
 
 // ---------------------------------------------------------------- Zoho imports
 

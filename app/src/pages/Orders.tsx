@@ -97,6 +97,7 @@ function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void })
   const invoice = useAction(() => post(`orders/${id}/invoice`), refresh, { onSuccess: () => onMoved("2") });
   const cashBill = useAction(() => post(`orders/${id}/cash-bill`), refresh, { onSuccess: () => onMoved("2") });
   const sendInvoice = useAction((to: string) => post(`orders/${id}/send-invoice`, { to }), []);
+  const sendOtp = useAction(() => post(`orders/${id}/send-otp`), []);
   const saveItems = useAction((items: Record<string, unknown>[]) => patch(`orders/${id}/items`, { items }), ["orders"]);
 
   if (isLoading) return <Card className="p-5"><Loading /></Card>;
@@ -142,6 +143,9 @@ function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void })
           {(status === "2" || status === "3") && isCash && (
             <Button variant="secondary" icon={<Receipt className="h-3.5 w-3.5" />} onClick={() => navigate(`/cash-bills?order=${id}`)}>View Cash Bill</Button>
           )}
+          {status === "2" && isCash && (
+            <Button variant="outline" busy={sendOtp.isPending} icon={<Send className="h-3.5 w-3.5" />} onClick={() => sendOtp.mutate(undefined)}>Send Delivery OTP</Button>
+          )}
           {(status === "2" || status === "3") && o.zb_invoice_id && (
             <>
               <Button variant="info" icon={<ExternalLink className="h-3.5 w-3.5" />} onClick={() => window.open(`${zohoApp}/invoices/${o.zb_invoice_id}`, "_blank", "noopener")}>E-Invoice</Button>
@@ -168,7 +172,6 @@ function OrderDetail({ id, onMoved }: { id: number; onMoved: (t: Tab) => void })
         <KV label="Delivery Address" value={[s.line1, s.line2, s.city, s.state, s.pincode].filter(Boolean).join(", ")} />
         <KV label="Delivery Date" value={fmtDate(o.delivery_date)} />
         <KV label={status === "1" ? "Order Value" : "Total Amount"} value={inr(o.total_amount ?? total)} />
-        {(status === "2") && o.otp && <KV label="Delivery OTP" value={o.otp} />}
         {s.maps_link && <KV label="Map" value={<a className="text-info underline" href={s.maps_link} target="_blank" rel="noreferrer">Open map</a>} />}
       </div>
 
@@ -312,7 +315,7 @@ function DeliverModal({ orderId, onClose, onDone }: { orderId: number; onClose: 
   return (
     <Modal open onClose={onClose} title="Mark as delivered" size="sm" footer={<><Button variant="outline" onClick={onClose}>Cancel</Button><Button variant="success" busy={verify.isPending} disabled={!otp.trim()} onClick={() => verify.mutate(undefined)}>Verify OTP</Button></>}>
       <Field label="Delivery OTP"><Input id="otp" inputMode="numeric" autoFocus value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter delivery OTP" onKeyDown={(e) => e.key === "Enter" && otp && verify.mutate(undefined)} /></Field>
-      <p className="mt-2 text-[11px] text-gray-500">The customer received this OTP on WhatsApp with their invoice.</p>
+      <p className="mt-2 text-[11px] text-gray-500">The customer gets this OTP on WhatsApp when the invoice is sent (or from Send Delivery OTP for cash bills).</p>
     </Modal>
   );
 }

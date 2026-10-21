@@ -7,6 +7,8 @@ export const config = {
   appUsers: process.env.APP_USERS || "",
   authSecret: process.env.AUTH_SECRET || "",
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
+  // Shared key the WordPress external form sends to POST /api/webhooks/enquiry.
+  enquiryWebhookKey: process.env.ENQUIRY_WEBHOOK_KEY || "",
   aisensyApiKey: process.env.AISENSY_API_KEY || "",
   aisensyUrl: process.env.AISENSY_URL || "https://backend.aisensy.com/campaign/t1/api/v2",
   zoho: {
