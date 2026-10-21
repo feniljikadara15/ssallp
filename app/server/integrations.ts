@@ -48,6 +48,8 @@ export async function sendWhatsApp(msg: WhatsAppMessage): Promise<{ sent: boolea
   // AiSensy answers {"success":"true",...}; anything else means the message didn't go out.
   if (!res.ok || (data && String(data.success) !== "true")) {
     const reason = data?.errorMessage ?? data?.message ?? data?.error ?? text.slice(0, 300);
+    if (res.status === 401 || /unauthori[sz]ed/i.test(String(reason)))
+      throw new HttpError(502, `WhatsApp "${msg.campaignName}" to ${msg.destination} failed: AiSensy rejected the API key (Unauthorized). Copy the key again from AiSensy → Manage → API Key into AISENSY_API_KEY in Vercel and redeploy.`);
     throw new HttpError(502, `WhatsApp "${msg.campaignName}" to ${msg.destination} failed: ${reason}`);
   }
   return { sent: true, note: `Message sent to ${msg.destination}` };

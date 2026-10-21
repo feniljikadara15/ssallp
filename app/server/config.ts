@@ -9,7 +9,8 @@ export const config = {
   publicBaseUrl: process.env.PUBLIC_BASE_URL || "",
   // Shared key the WordPress external form sends to POST /api/webhooks/enquiry.
   enquiryWebhookKey: process.env.ENQUIRY_WEBHOOK_KEY || "",
-  aisensyApiKey: process.env.AISENSY_API_KEY || "",
+  // Pasted keys often pick up spaces, line breaks or quotes, which AiSensy rejects.
+  aisensyApiKey: (process.env.AISENSY_API_KEY || "").replace(/\s+/g, "").replace(/^["']|["']$/g, ""),
   aisensyUrl: process.env.AISENSY_URL || "https://backend.aisensy.com/campaign/t1/api/v2",
   zoho: {
     clientId: process.env.ZOHO_CLIENT_ID || "",
