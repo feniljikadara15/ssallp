@@ -16,12 +16,40 @@ async function connectPg(): Promise<Driver> {
   pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));
   pg.types.setTypeParser(1082, (v) => v);
   const needsSsl = !/localhost|127\.0\.0\.1/.test(config.databaseUrl) && !/sslmode=disable/.test(config.databaseUrl);
+  // An sslmode in the URL would override the ssl option below, so drop it.
+  const url = new URL(config.databaseUrl);
+  url.searchParams.delete("sslmode");
   const pool = new pg.Pool({
-    connectionString: config.databaseUrl,
+    connectionString: url.toString(),
     ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
     max: 3,
   });
-  return { query: async (text, params) => (await pool.query(text, params as any[])).rows };
+  const driver: Driver = { query: async (text, params) => (await pool.query(text, params as any[])).rows };
+  await setUpEmptyDatabase(driver);
+  return driver;
+}
+
+// A brand-new database (for example a fresh Supabase project) gets the tables
+// on first connection. A database that already has them, like the Retool DB,
+// is left alone.
+async function setUpEmptyDatabase(db: Driver) {
+  const [{ ready }] = await db.query("SELECT to_regclass('public.orders') IS NOT NULL AS ready");
+  if (ready) return;
+  const { SCHEMA_SQL } = await import("./schemaSql.js");
+  const { STATES } = await import("./demoSeed.js");
+  await db.query(SCHEMA_SQL);
+  // Supabase publishes the public schema through its REST API to anyone with
+  // the anon key. Row level security with no policies closes that door; the
+  // app connects as the database owner, which bypasses it.
+  await db.query(`DO $$ DECLARE t text; BEGIN
+    FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' LOOP
+      EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+    END LOOP; END $$;`);
+  await db.query(
+    `INSERT INTO state_codes (state_name, code) SELECT * FROM UNNEST($1::text[], $2::text[])`,
+    [STATES.map((s) => s[0]), STATES.map((s) => s[1])],
+  );
+  console.log("Created the OMS tables in an empty database");
 }
 
 // Demo mode: an embedded Postgres (PGlite) seeded with sample data. It lives in

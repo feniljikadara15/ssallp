@@ -22,6 +22,8 @@ The Vercel project's Root Directory must be `app`. Then add these environment va
 | `ENQUIRY_WEBHOOK_KEY` | for the external form | Any long random string. The WordPress external form sends it to create enquiries (see below). |
 | `PUBLIC_BASE_URL` | no | e.g. `https://ssallp-seven.vercel.app`. Used in WhatsApp media links; defaults to the request's own host. |
 
+**Supabase:** use the Transaction pooler connection string (Project → Connect → Transaction pooler, port 6543) as `DATABASE_URL`. On its first connection to an empty database the app creates all tables, turns on row level security (so Supabase's public REST API and anon key can't read them) and adds the state codes. To bring the Retool data across instead, run `scripts/copy-retool-to-supabase.sh` before the app first connects. The Supabase anon and service-role keys are not used.
+
 Without `DATABASE_URL` the app runs in **demo mode**: an embedded Postgres (PGlite) with sample data, no sign-in, and changes that reset when the server instance restarts.
 
 ### Zoho refresh token
