@@ -8,7 +8,8 @@ export function Card({ className, children }: { className?: string; children: Re
   return <div className={clsx("rounded-xl2 border border-black/[0.06] bg-white shadow-card", className)}>{children}</div>;
 }
 
-// A card with a titled header row: icon, title, optional description and actions.
+// A card with a titled header row: title, optional description and actions.
+// (`icon` is accepted for older call sites but not drawn.)
 export function Section({ title, description, icon, actions, children, className, bodyClassName }: {
   title: ReactNode; description?: ReactNode; icon?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; bodyClassName?: string;
 }) {
@@ -16,7 +17,6 @@ export function Section({ title, description, icon, actions, children, className
     <Card className={className}>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[0.05] px-4 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          {icon && <div className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-secondary/[0.06] text-secondary/70 [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</div>}
           <div className="min-w-0">
             <h3 className="truncate text-[13px] font-semibold text-secondary">{title}</h3>
             {description && <p className="truncate text-2xs text-gray-500">{description}</p>}
