@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { ArrowLeft } from "lucide-react";
@@ -10,6 +10,8 @@ import { EmptyState, SearchInput, toast } from "./ui";
 // enquiries and orders. The selected record lives in the URL (/orders/12), the
 // filters in the query string, so moving between records keeps the filters.
 // On phones the list and the record take turns, with a link back to the list.
+
+const PAGE = 100;
 
 export interface SplitItem { key: string | number; to: string; title: ReactNode; sub?: ReactNode; right?: ReactNode; rightSub?: ReactNode; tags?: ReactNode }
 
@@ -38,6 +40,9 @@ export function SplitList({ title, summary, items, selectedKey, loading, empty, 
 }) {
   const { search } = useLocation();
   const [busy, setBusy] = useState(false);
+  // Thousands of orders: draw them a page at a time. Search and filters still cover them all.
+  const [shown, setShown] = useState(PAGE);
+  useEffect(() => setShown(PAGE), [q, title, items.length]);
   const run = (fn: () => unknown) => async () => {
     setBusy(true);
     try { await fn(); } catch (e) { toast("Export failed", "error", (e as Error).message); }
@@ -60,7 +65,7 @@ export function SplitList({ title, summary, items, selectedKey, loading, empty, 
         {loading && !items.length && Array.from({ length: 6 }, (_, i) => (
           <div key={i} className="space-y-2 px-4 py-3"><div className="skeleton h-3 w-2/3 rounded" /><div className="skeleton h-3 w-1/3 rounded" /></div>
         ))}
-        {items.map((it) => {
+        {items.slice(0, shown).map((it) => {
           const active = it.key === selectedKey;
           return (
             <Link key={it.key} to={`${it.to}${search}`} aria-current={active ? "page" : undefined}
@@ -79,6 +84,13 @@ export function SplitList({ title, summary, items, selectedKey, loading, empty, 
             </Link>
           );
         })}
+        {items.length > shown && (
+          <div className="p-3 text-center">
+            <button type="button" className="btn btn-sm w-full" onClick={() => setShown((n) => n + PAGE)}>
+              Show {Math.min(PAGE, items.length - shown).toLocaleString("en-IN")} more <span className="text-faint">({(items.length - shown).toLocaleString("en-IN")} left)</span>
+            </button>
+          </div>
+        )}
         {!loading && !items.length && <div className="px-4 py-10 text-center">{empty}</div>}
       </div>
     </div>

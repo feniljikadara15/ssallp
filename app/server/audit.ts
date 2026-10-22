@@ -21,6 +21,8 @@ export function deviceOf(ua: string) {
 // column primary key. Safe to run on every start: tables that already have
 // the trigger are skipped, so no locks are taken after the first run.
 export const AUDIT_SQL = `
+-- Never wait on busy tables (a data copy in progress, say): give up and retry on the next start.
+SET LOCAL lock_timeout = '3s';
 CREATE TABLE IF NOT EXISTS audit_log (
   audit_id BIGSERIAL PRIMARY KEY,
   at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

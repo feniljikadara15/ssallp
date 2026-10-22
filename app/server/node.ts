@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { gzipSync } from "node:zlib";
 import { handle } from "./router.js";
 
 // Adapter from a Node request (Vercel function or Vite dev server) to handle().
@@ -40,6 +41,13 @@ export async function nodeHandler(req: IncomingMessage & { body?: unknown }, res
   } else {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Cache-Control", "no-store");
-    res.end(JSON.stringify(out.json ?? null));
+    // Lists of thousands of orders run to megabytes of JSON; gzip keeps them
+    // well under Vercel's 4.5 MB response limit and loads them faster.
+    const text = JSON.stringify(out.json ?? null);
+    if (text.length > 2048 && /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""))) {
+      res.setHeader("Content-Encoding", "gzip");
+      res.setHeader("Vary", "Accept-Encoding");
+      res.end(gzipSync(text));
+    } else res.end(text);
   }
 }

@@ -93,10 +93,13 @@ function explainConnectionError(e: any) {
 // is left alone.
 async function setUpEmptyDatabase(db: Driver) {
   const [{ ready }] = await db.query("SELECT to_regclass('public.orders') IS NOT NULL AS ready");
+  // A database that already has tables is never seeded: it holds real data,
+  // or a copy from Retool may be in progress.
   if (ready) {
     await addMissingColumns(db);
+    await addIndexes(db);
     await installAudit(db);
-    return seedIfRequested(db);
+    return;
   }
   const { SCHEMA_SQL } = await import("./schemaSql.js");
   const { STATES } = await import("./demoSeed.js");
@@ -125,13 +128,28 @@ async function addMissingColumns(db: Driver) {
     ALTER TABLE loading_slips ADD COLUMN IF NOT EXISTS regenerated_count INTEGER DEFAULT 0;`);
 }
 
+// The Retool tables have primary keys only. The lists look up each row's
+// customer, items, slips and payments, which needs these to stay fast with
+// thousands of orders. Best-effort and skipped while tables are busy.
+async function addIndexes(db: Pick<Driver, "query">) {
+  const idx: [string, string][] = [
+    ["orders", "customer_id"], ["orders", "enquiry_id"], ["orders", "warehouse_id"], ["orders", "transporter_id"], ["orders", "order_status"],
+    ["order_items", "order_id"], ["enquiries", "customer_id"], ["enquiries", "enquiry_status"], ["enquiry_items", "enquiry_id"],
+    ["loading_slips", "order_id"], ["loading_slip_items", "loading_slip_id"], ["cash_collected", "order_id"], ["invoices", "order_id"],
+    ["addresses", "customer_id"], ["sites", "customer_id"], ["warehouse_brands", "warehouse_id"], ["warehouse_keepers", "warehouse_id"],
+    ["vehicles", "transporter_id"], ["transporter_warehouses", "transporter_id"], ["transporter_warehouses", "warehouse_id"],
+  ];
+  const sql = idx.map(([t, c]) => `CREATE INDEX IF NOT EXISTS ${t}_${c}_idx ON ${t} (${c});`).join("\n");
+  try { await db.query(`SET LOCAL lock_timeout = '3s';\n${sql}`); } catch (e: any) { console.error("Indexes not added:", e.message); }
+}
+
 // The audit log is best-effort: a database user without the rights to add
 // triggers still gets a working app, just without the history.
 async function installAudit(db: Pick<Driver, "query">) {
   try { await db.query(AUDIT_SQL); } catch (e: any) { console.error("Audit log not installed:", e.message); }
 }
 
-// SEED_DEMO_DATA=true fills an EMPTY database (no customers, orders or
+// SEED_DEMO_DATA=true fills a database the app has just created (no customers, orders or
 // products) with the demo sample data. It never touches a database with data.
 async function seedIfRequested(db: Driver) {
   if (!/^(1|true|yes)$/i.test(process.env.SEED_DEMO_DATA ?? "")) return;
