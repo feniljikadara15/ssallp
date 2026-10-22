@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import clsx from "clsx";
 import { Plus } from "lucide-react";
-import { useGet } from "../api";
-import { fmtDate, includes, inRange, num, stamp } from "../format";
+import { api, useDebounced, useGet } from "../api";
+import { fmtDate, num, stamp } from "../format";
 import { useUrlState } from "../lib/urlState";
 import { NewEnquiryModal } from "../components/NewEnquiryModal";
 import { SplitList, SplitView } from "../components/SplitView";
@@ -22,23 +22,19 @@ const ready = (e: any) => e.warehouse_id != null && e.transporter_id != null;
 export default function Enquiries() {
   const navigate = useNavigate();
   const id = Number(useParams().id) || null;
-  const enquiries = useGet<any[]>("enquiries", { refetchInterval: 60_000 });
-  const customers = useGet<any[]>("customers");
+  const customers = useGet<any[]>("customer-names");
   const warehouses = useGet<any[]>("warehouses");
   const [f, set, clear] = useUrlState({ status: "0", customer: "", warehouse: "", source: "", ready: "", from: "", to: "", q: "", new: "" });
-  const all = enquiries.data ?? [];
-
-  const rows = useMemo(() => all.filter((e) =>
-    e.enquiry_status === f.status &&
-    (!f.customer || String(e.customer_id) === f.customer) &&
-    (!f.warehouse || String(e.warehouse_id) === f.warehouse) &&
-    (!f.source || (e.type ?? "Internal") === f.source) &&
-    (!f.ready || (f.ready === "yes" ? ready(e) : !ready(e))) &&
-    inRange(e.enquiry_date, f.from, f.to) &&
-    (includes(`${e.customer_name} ${e.site_name} EN-${e.enquiry_id} ${e.customer_phone ?? ""}`, f.q))), [all, f]);
+  // Filtering, search and paging happen in the database; the list asks for 100 rows at a time.
+  const q = useDebounced(f.q);
+  const filterQs = new URLSearchParams(Object.entries({ status: f.status, customer: f.customer, warehouse: f.warehouse, source: f.source, ready: f.ready, from: f.from, to: f.to, q }).filter(([, v]) => v)).toString();
+  const [limit, setLimit] = useState(100);
+  useEffect(() => setLimit(100), [filterQs]);
+  const enquiries = useGet<{ rows: any[]; total: number; value: number; not_ready: number; counts: Record<string, number> }>(`enquiries?paged=1&limit=${limit}&${filterQs}`, { refetchInterval: 60_000, keep: true });
+  const rows = enquiries.data?.rows ?? [];
   const filtered = FILTERS.some((k) => f[k]);
-  const value = rows.reduce((s, e) => s + Number(e.items_value ?? 0), 0);
-  const notReady = f.status === "0" ? rows.filter((e) => !ready(e)).length : 0;
+  const value = enquiries.data?.value ?? 0;
+  const notReady = f.status === "0" ? enquiries.data?.not_ready ?? 0 : 0;
   const statusLabel = STATUS.find(([v]) => v === f.status)?.[1] ?? "";
 
   return (
@@ -48,7 +44,7 @@ export default function Enquiries() {
           <Button variant="primary" icon={<Plus />} onClick={() => set({ new: "1" })}>New enquiry</Button>
         </PageHeader>
         <Toolbar>
-          <Tabs value={f.status} onChange={(v) => set({ status: v, ready: "" })} tabs={STATUS.map(([value, label]) => ({ value, label, count: all.filter((e) => e.enquiry_status === value).length }))} />
+          <Tabs value={f.status} onChange={(v) => set({ status: v, ready: "" })} tabs={STATUS.map(([value, label]) => ({ value, label, count: enquiries.data?.counts[value] ?? 0 }))} />
         </Toolbar>
         <FilterBar active={filtered} onClear={() => clear(FILTERS)}>
           <Select className="w-full sm:w-56" value={f.customer} onChange={(e) => set({ customer: e.target.value })} placeholder="All customers"
@@ -77,21 +73,21 @@ export default function Enquiries() {
                 {e.order_id && <Badge tone="neutral">Order #{e.order_id}</Badge>}
               </>,
             }))}
-            selectedKey={id ?? undefined} loading={enquiries.isLoading}
+            selectedKey={id ?? undefined} loading={enquiries.isLoading || (enquiries.isFetching && rows.length < limit && rows.length < (enquiries.data?.total ?? 0))} total={enquiries.data?.total} onMore={() => setLimit((n) => n + 100)}
             summary={<>₹{num(value)} total{notReady ? `, ${num(notReady)} without transport` : ""}</>}
             q={f.q} onSearch={(v) => set({ q: v })} placeholder="Customer, site, EN number or phone"
             empty={<><div className="text-[13.5px] font-medium text-ink">{filtered ? "No enquiries match these filters" : `No ${statusLabel.toLowerCase()} enquiries`}</div>
               {filtered && <button className="btn btn-sm mt-3" onClick={() => clear(FILTERS)}>Clear filters</button>}</>}
-            exportInput={{
+            exportInput={async () => ({
               title: `${statusLabel} enquiries`, filename: `${statusLabel} enquiries ${stamp()}`, totals: ["items_value"],
-              rows: rows.map((e) => ({ ...e, en: `EN-${e.enquiry_id}`, source: e.type ?? "Internal" })),
+              rows: (await api<any[]>(`enquiries?${filterQs}`)).map((e) => ({ ...e, en: `EN-${e.enquiry_id}`, source: e.type ?? "Internal" })),
               cols: [
                 { key: "en", label: "Enquiry" }, { key: "customer_name", label: "Customer" }, { key: "site_name", label: "Site" },
                 { key: "enquiry_date", label: "Received", kind: "date" }, { key: "delivery_date", label: "Deliver by", kind: "date" },
                 { key: "item_count", label: "Items", kind: "int" }, { key: "warehouse_name", label: "Warehouse" }, { key: "transporter_name", label: "Transporter" },
                 { key: "source", label: "Source" }, { key: "order_id", label: "Order #", kind: "int" }, { key: "items_value", label: "Value (₹)", kind: "money" },
               ],
-            }} />
+            })} />
         } />
 
       {f.new && <NewEnquiryModal onClose={() => set({ new: "" })} onCreated={(nid) => { set({ new: "", status: "0" }); navigate(`/enquiries/${nid}`); }} />}

@@ -17,7 +17,7 @@ export default function CashBills() {
   const navigate = useNavigate();
   const pending = useGet<any[]>("cash-bills?tab=pending", { refetchInterval: 60_000 });
   const collected = useGet<any[]>("cash-bills?tab=collected");
-  const customers = useGet<any[]>("customers");
+  const customers = useGet<any[]>("customer-names");
   const warehouses = useGet<any[]>("warehouses");
   const [f, set, clear] = useUrlState({ tab: "pending", customer: "", warehouse: "", age: "", from: "", to: "" });
   const isPending = f.tab === "pending";

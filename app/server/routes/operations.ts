@@ -37,7 +37,7 @@ route("GET", "/api/dashboard", async ({ query }) => {
   const billed = `${scope} AND o.order_status IN ('2', '3')`;
   const p = [pay, wh];
 
-  const [k] = await q(`SELECT
+  const kQ = q(`SELECT
       (SELECT COALESCE(SUM(o.total_amount), 0) FROM orders o WHERE ${billed} AND ${D} BETWEEN $3::date AND $4::date) AS sales,
       (SELECT COUNT(*)::int FROM orders o WHERE ${billed} AND ${D} BETWEEN $3::date AND $4::date) AS billed,
       (SELECT COALESCE(SUM(o.total_amount), 0) FROM orders o WHERE ${billed} AND ${D} BETWEEN $5::date AND $6::date) AS prev_sales,
@@ -48,59 +48,63 @@ route("GET", "/api/dashboard", async ({ query }) => {
       (SELECT COUNT(*)::int FROM orders o WHERE ${scope} AND o.order_status = '1') AS to_dispatch,
       (SELECT COUNT(*)::int FROM orders o WHERE ${scope} AND o.order_status = '2') AS in_transit`,
     [...p, from, to, prevFrom, prevTo]);
-  const [cash] = await q(`SELECT COUNT(*)::int AS count, COALESCE(SUM(o.total_amount - COALESCE(cc.paid, 0)), 0) AS due
+  const cashQ = q(`SELECT COUNT(*)::int AS count, COALESCE(SUM(o.total_amount - COALESCE(cc.paid, 0)), 0) AS due
       FROM orders o LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM cash_collected WHERE is_active = TRUE GROUP BY 1) cc ON cc.order_id = o.order_id
      WHERE o.is_active = TRUE AND o.payment_type = 'cash' AND o.order_status IN ('2', '3') AND ($1::int IS NULL OR o.warehouse_id = $1) AND COALESCE(cc.paid, 0) < o.total_amount`, [wh]);
 
-  const monthly = await q(`SELECT TO_CHAR(m, 'Mon') AS label, TO_CHAR(m, 'Mon YYYY') AS title,
-        COALESCE((SELECT SUM(o.total_amount) FROM orders o WHERE ${billed} AND DATE_TRUNC('month', ${D}) = m), 0)::float AS sales,
-        (SELECT COUNT(*) FROM orders o WHERE ${scope} AND o.order_status <> '5' AND DATE_TRUNC('month', ${D}) = m)::int AS orders
-      FROM generate_series(DATE_TRUNC('month', $3::date) - INTERVAL '11 months', DATE_TRUNC('month', $3::date), INTERVAL '1 month') m ORDER BY m`, [...p, to]);
+  // One pass over the last 12 months of orders, grouped by month.
+  const monthlyQ = q(`WITH agg AS (
+        SELECT DATE_TRUNC('month', ${D}) AS m,
+               SUM(o.total_amount) FILTER (WHERE o.order_status IN ('2', '3')) AS sales,
+               COUNT(*) FILTER (WHERE o.order_status <> '5') AS orders
+          FROM orders o WHERE ${scope} AND ${D} >= DATE_TRUNC('month', $3::date) - INTERVAL '11 months' AND ${D} <= $3::date
+         GROUP BY 1)
+      SELECT TO_CHAR(m, 'Mon') AS label, TO_CHAR(m, 'Mon YYYY') AS title, COALESCE(agg.sales, 0)::float AS sales, COALESCE(agg.orders, 0)::int AS orders
+        FROM generate_series(DATE_TRUNC('month', $3::date) - INTERVAL '11 months', DATE_TRUNC('month', $3::date), INTERVAL '1 month') m
+        LEFT JOIN agg USING (m) ORDER BY m`, [...p, to]);
 
   const inPeriod = `${billed} AND ${D} BETWEEN $3::date AND $4::date`;
-  const byCustomer = await q(`SELECT c.name AS label, SUM(o.total_amount)::float AS value, COUNT(*)::int AS orders FROM orders o JOIN customers c ON c.customer_id = o.customer_id
+  const byCustomerQ = q(`SELECT c.name AS label, SUM(o.total_amount)::float AS value, COUNT(*)::int AS orders FROM orders o JOIN customers c ON c.customer_id = o.customer_id
       WHERE ${inPeriod} GROUP BY c.name ORDER BY value DESC LIMIT 8`, [...p, from, to]);
-  const byBrand = await q(`SELECT COALESCE(p.brand, 'Other') AS label, SUM(oi.quantity * oi.unit_price)::float AS value FROM orders o
+  const byBrandQ = q(`SELECT COALESCE(p.brand, 'Other') AS label, SUM(oi.quantity * oi.unit_price)::float AS value FROM orders o
       JOIN order_items oi ON oi.order_id = o.order_id AND oi.is_active = TRUE JOIN products p ON p.product_id = oi.product_id
       WHERE ${inPeriod} GROUP BY 1 ORDER BY value DESC LIMIT 8`, [...p, from, to]);
-  const byWarehouse = await q(`SELECT COALESCE(w.name, 'No warehouse') AS label, SUM(o.total_amount)::float AS value, COUNT(*)::int AS orders FROM orders o
+  const byWarehouseQ = q(`SELECT COALESCE(w.name, 'No warehouse') AS label, SUM(o.total_amount)::float AS value, COUNT(*)::int AS orders FROM orders o
       LEFT JOIN warehouses w ON w.warehouse_id = o.warehouse_id WHERE ${inPeriod} GROUP BY 1 ORDER BY value DESC`, [...p, from, to]);
-  const split = await q(`SELECT COALESCE(o.payment_type, 'invoice') AS kind, SUM(o.total_amount)::float AS value FROM orders o WHERE ${inPeriod} GROUP BY 1`, [...p, from, to]);
-  const billedRows = await q(`SELECT o.order_id, o.order_number, o.order_date, o.payment_type, o.order_status, o.total_amount, c.name AS customer_name, w.name AS warehouse_name, i.zb_invoice_number
+  const splitQ = q(`SELECT COALESCE(o.payment_type, 'invoice') AS kind, SUM(o.total_amount)::float AS value FROM orders o WHERE ${inPeriod} GROUP BY 1`, [...p, from, to]);
+  const billedRowsQ = q(`SELECT o.order_id, o.order_number, o.order_date, o.payment_type, o.order_status, o.total_amount, c.name AS customer_name, w.name AS warehouse_name, i.zb_invoice_number
       FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN warehouses w ON w.warehouse_id = o.warehouse_id LEFT JOIN invoices i ON i.invoice_id = o.invoice_id
       WHERE ${inPeriod} ORDER BY o.order_date DESC LIMIT 1000`, [...p, from, to]);
-  const cashRows = await q(`SELECT c.name AS customer_name, COUNT(*)::int AS bills, SUM(o.total_amount)::float AS billed, SUM(COALESCE(cc.paid, 0))::float AS collected,
+  const cashRowsQ = q(`SELECT c.name AS customer_name, COUNT(*)::int AS bills, SUM(o.total_amount)::float AS billed, SUM(COALESCE(cc.paid, 0))::float AS collected,
         SUM(o.total_amount - COALESCE(cc.paid, 0))::float AS due, MIN(o.order_date) AS oldest
       FROM orders o JOIN customers c ON c.customer_id = o.customer_id
       LEFT JOIN (SELECT order_id, SUM(amount) AS paid FROM cash_collected WHERE is_active = TRUE GROUP BY 1) cc ON cc.order_id = o.order_id
      WHERE o.is_active = TRUE AND o.payment_type = 'cash' AND o.order_status IN ('2', '3') AND ($1::int IS NULL OR o.warehouse_id = $1) AND COALESCE(cc.paid, 0) < o.total_amount
      GROUP BY c.name ORDER BY due DESC`, [wh]);
 
-  const [alerts] = await q(`SELECT
+  const alertsQ = q(`SELECT
       (SELECT COUNT(*)::int FROM orders o WHERE ${scope} AND o.order_status = '1' AND o.loading_slip_id IS NULL) AS no_slip,
       (SELECT COUNT(*)::int FROM orders o WHERE ${scope} AND o.order_status = '2' AND o.updated_at < NOW() - INTERVAL '2 days') AS transit,
       (SELECT COUNT(*)::int FROM enquiries e WHERE e.is_active = TRUE AND e.enquiry_status = '0' AND ($2::int IS NULL OR e.warehouse_id = $2) AND e.enquiry_date < NOW() - INTERVAL '2 days') AS enquiry,
       (SELECT COUNT(*)::int FROM warehouse_brands wb WHERE wb.is_active IS NOT FALSE AND wb.warehouse_keeper_id IS NULL AND ($2::int IS NULL OR wb.warehouse_id = $2)) AS no_keeper`, p);
 
+  // All at once: each query is a round trip to the database.
+  const [[k], [cash], monthly, byCustomer, byBrand, byWarehouse, split, billedRows, cashRows, [alerts]] =
+    await Promise.all([kQ, cashQ, monthlyQ, byCustomerQ, byBrandQ, byWarehouseQ, splitQ, billedRowsQ, cashRowsQ, alertsQ]);
   return { period: { from, to, prevFrom, prevTo }, kpis: { ...k, cash_due: cash.due, cash_bills: cash.count }, monthly, byCustomer, byBrand, byWarehouse, split, billedRows, cashRows, alerts };
 });
 
 // ------------------------------------------------------------ enquiries
 
-// getEnquiries (+ customer name for the list)
-route("GET", "/api/enquiries", async () =>
-  q(`SELECT e.enquiry_id, e.customer_id, e.enquiry_date, e.enquiry_status, e.type, e.billing_address_id, e.delivery_address_id, e.site_id,
-            e.remarks, e.warehouse_id, e.transporter_id, e.delivery_date, c.name AS customer_name, c.phone AS customer_phone, s.site_name,
-            w.name AS warehouse_name, t.name AS transporter_name, (SELECT o.order_id FROM orders o WHERE o.enquiry_id = e.enquiry_id ORDER BY o.order_id LIMIT 1) AS order_id,
-            (SELECT COUNT(*)::int FROM enquiry_items ei WHERE ei.enquiry_id = e.enquiry_id AND ei.is_active = TRUE) AS item_count,
-            (SELECT COALESCE(SUM(ei.quantity * ei.unit_price), 0) FROM enquiry_items ei WHERE ei.enquiry_id = e.enquiry_id AND ei.is_active = TRUE) AS items_value
-       FROM enquiries e LEFT JOIN customers c ON c.customer_id = e.customer_id LEFT JOIN sites s ON s.site_id = e.site_id
-       LEFT JOIN warehouses w ON w.warehouse_id = e.warehouse_id LEFT JOIN transporters t ON t.transporter_id = e.transporter_id
-      WHERE e.is_active = TRUE ORDER BY e.enquiry_date DESC`));
 
 route("GET", "/api/enquiries/:id", async ({ params }) => {
   const id = num(params.id);
-  const enquiry = await one(
+  // getEnquiryItems
+  const itemsQ = q(
+    `SELECT ei.*, p.category, p.brand, p.grade, p.unit FROM enquiry_items ei LEFT JOIN products p ON p.product_id = ei.product_id WHERE ei.enquiry_id = $1 ORDER BY ei.enquiry_item_id`,
+    [id],
+  );
+  const enquiryQ = one(
     `SELECT e.*, c.name AS customer_name, c.phone AS customer_phone, c.additional_phone_1, c.additional_phone_2, c.gstin, c.pan, c.tcs_status, c.zb_customer_id, c.email,
             s.site_name, s.site_person_name, s.site_person_contact, w.name AS warehouse_name, t.name AS transporter_name,
             (SELECT o.order_id FROM orders o WHERE o.enquiry_id = e.enquiry_id ORDER BY o.order_id LIMIT 1) AS order_id,
@@ -115,12 +119,8 @@ route("GET", "/api/enquiries/:id", async ({ params }) => {
       WHERE e.enquiry_id = $1`,
     [id],
   );
+  const [enquiry, items] = await Promise.all([enquiryQ, itemsQ]);
   if (!enquiry) throw new HttpError(404, "Enquiry not found");
-  // getEnquiryItems
-  const items = await q(
-    `SELECT ei.*, p.category, p.brand, p.grade, p.unit FROM enquiry_items ei LEFT JOIN products p ON p.product_id = ei.product_id WHERE ei.enquiry_id = $1 ORDER BY ei.enquiry_item_id`,
-    [id],
-  );
   return { ...enquiry, items };
 });
 
@@ -217,17 +217,6 @@ route("GET", "/api/zoho/contacts/:id", async ({ params }) => {
 // ------------------------------------------------------------ orders
 
 // getOrders + getAllLoadingSlipItems (for list labels and loading slip search)
-route("GET", "/api/orders", async () =>
-  q(`SELECT o.order_id, o.order_number, o.enquiry_id, o.order_date, o.payment_type, o.order_status, o.total_amount, o.customer_id, o.loading_slip_id,
-            o.invoice_id, o.warehouse_id, o.transporter_id, o.updated_at, c.name AS customer_name, s.site_name, w.name AS warehouse_name, t.name AS transporter_name,
-            v.vehicle_number, i.zb_invoice_number,
-            (SELECT COALESCE(SUM(oi.quantity * oi.unit_price), 0) FROM order_items oi WHERE oi.order_id = o.order_id AND oi.is_active = TRUE) AS items_value,
-            (SELECT lsi.loading_slip_file_name FROM loading_slip_items lsi WHERE lsi.loading_slip_id = o.loading_slip_id ORDER BY lsi.loading_slip_item_id LIMIT 1) AS loading_slip_file_name,
-            (SELECT ARRAY_AGG(lsi.loading_slip_number::text) FROM loading_slips ls JOIN loading_slip_items lsi ON lsi.loading_slip_id = ls.loading_slip_id WHERE ls.order_id = o.order_id) AS loading_slip_numbers
-       FROM orders o LEFT JOIN customers c ON c.customer_id = o.customer_id LEFT JOIN sites s ON s.site_id = o.site_id
-       LEFT JOIN warehouses w ON w.warehouse_id = o.warehouse_id LEFT JOIN transporters t ON t.transporter_id = o.transporter_id
-       LEFT JOIN vehicles v ON v.vehicle_id = o.vehicle_id LEFT JOIN invoices i ON i.invoice_id = o.invoice_id
-      WHERE o.is_active = TRUE ORDER BY o.order_date DESC`));
 
 async function loadingSlipItems(orderId: number) {
   // getLoadingSlips + getLoadingSlipItems
@@ -245,7 +234,13 @@ async function loadingSlipItems(orderId: number) {
 
 route("GET", "/api/orders/:id", async (req) => {
   const id = num(req.params.id);
-  const order = await one(
+  // Order, items and slips in parallel: each is a round trip to the database.
+  const itemsQ = q(
+    `SELECT oi.*, p.category, p.brand, p.grade, p.unit FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id WHERE oi.order_id = $1 AND oi.is_active = TRUE ORDER BY oi.order_item_id`,
+    [id],
+  );
+  const slipsQ = loadingSlipItems(id);
+  const orderQ = one(
     `SELECT o.*, c.name AS customer_name, c.phone AS customer_phone, c.gstin, c.pan, c.tcs_status, c.zb_customer_id, c.email,
             e.delivery_date, e.enquiry_date, s.site_name, s.site_person_name, s.site_person_contact,
             row_to_json(b) AS billing_address, row_to_json(sa) AS shipping_address,
@@ -265,13 +260,9 @@ route("GET", "/api/orders/:id", async (req) => {
       WHERE o.order_id = $1`,
     [id],
   );
+  const [order, items, slipRows] = await Promise.all([orderQ, itemsQ, slipsQ]);
   if (!order) throw new HttpError(404, "Order not found");
-  // getOrderItems
-  const items = await q(
-    `SELECT oi.*, p.category, p.brand, p.grade, p.unit FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id WHERE oi.order_id = $1 AND oi.is_active = TRUE ORDER BY oi.order_item_id`,
-    [id],
-  );
-  const slips = (await loadingSlipItems(id)).map((r): Row => ({ ...r, url: slipUrl(publicBase(req), r) }));
+  const slips = slipRows.map((r): Row => ({ ...r, url: slipUrl(publicBase(req), r) }));
   return { ...order, items, loading_slip_items: slips, loading_slip_count: new Set(slips.map((s) => s.loading_slip_id)).size };
 });
 
@@ -580,10 +571,12 @@ route("GET", "/api/cash-bills", async ({ query }) => {
 // getCashBillItems + getCashPayments
 route("GET", "/api/cash-bills/:id", async ({ params }) => {
   const id = num(params.id);
-  const order = await one(`${CASH_BASE} WHERE o.order_id = $1`, [id]);
+  const [order, items, payments] = await Promise.all([
+    one(`${CASH_BASE} WHERE o.order_id = $1`, [id]),
+    q(`SELECT oi.*, p.category, p.brand, p.grade, p.unit FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id WHERE oi.order_id = $1 ORDER BY oi.order_item_id`, [id]),
+    q("SELECT * FROM cash_collected WHERE order_id = $1 AND is_active = TRUE ORDER BY collection_date, cash_collected_id", [id]),
+  ]);
   if (!order) throw new HttpError(404, "Cash bill not found");
-  const items = await q(`SELECT oi.*, p.category, p.brand, p.grade, p.unit FROM order_items oi LEFT JOIN products p ON p.product_id = oi.product_id WHERE oi.order_id = $1 ORDER BY oi.order_item_id`, [id]);
-  const payments = await q("SELECT * FROM cash_collected WHERE order_id = $1 AND is_active = TRUE ORDER BY collection_date, cash_collected_id", [id]);
   return { ...order, items, payments };
 });
 

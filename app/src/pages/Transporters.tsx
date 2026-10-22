@@ -63,7 +63,7 @@ export function TransporterDetail() {
   const transporters = useGet<any[]>("transporters");
   const vehicles = useGet<any[]>(`transporters/${id}/vehicles`);
   const linked = useGet<any[]>(`transporters/${id}/warehouses`);
-  const orders = useGet<any[]>("orders");
+  const orders = useGet<any[]>(`orders?transporter=${id}`);
   const [modal, setModal] = useState<null | "edit" | "vehicle" | "link">(null);
   const keys = ["transporters", "warehouses", "vehicle-details"];
   const remove = useAction(() => del(`transporters/${id}`), keys, { onSuccess: () => navigate("/transporters") });
@@ -73,7 +73,7 @@ export function TransporterDetail() {
 
   if (transporters.isLoading) return <div className="page"><Loading /></div>;
   if (!t) return <div className="page"><PageHeader title={`Transporter #${id}`} breadcrumb={[{ to: "/transporters", label: "Transporters" }]} /><ErrorBox error={transporters.error ?? new Error("This transporter doesn't exist.")} /></div>;
-  const myOrders = (orders.data ?? []).filter((o) => o.transporter_id === id);
+  const myOrders = orders.data ?? [];
 
   return (
     <div className="page">

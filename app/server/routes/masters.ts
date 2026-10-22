@@ -15,16 +15,6 @@ const stateCode = async (state: string | null) =>
 route("GET", "/api/state-codes", async () => q("SELECT * FROM state_codes WHERE is_active = TRUE ORDER BY state_name"));
 
 // getAllCustomers (the page lists inactive customers too) with billing address
-route("GET", "/api/customers", async () =>
-  q(`SELECT c.*, b.address_id AS billing_address_id, b.line1 AS billing_line1, b.line2 AS billing_line2, b.city AS billing_city,
-            b.state AS billing_state, b.pincode AS billing_pincode,
-            (SELECT COUNT(*)::int FROM sites s WHERE s.customer_id = c.customer_id AND s.is_active = TRUE) AS site_count,
-            (SELECT COUNT(*)::int FROM orders o WHERE o.customer_id = c.customer_id AND o.is_active = TRUE AND o.order_status <> '5') AS order_count,
-            (SELECT COALESCE(SUM(o.total_amount), 0)::float FROM orders o WHERE o.customer_id = c.customer_id AND o.is_active = TRUE AND o.order_status IN ('2', '3')) AS billed_value,
-            (SELECT MAX(o.order_date) FROM orders o WHERE o.customer_id = c.customer_id AND o.is_active = TRUE AND o.order_status <> '5') AS last_order
-       FROM customers c
-       LEFT JOIN LATERAL (SELECT * FROM addresses a WHERE a.customer_id = c.customer_id AND a.type = 'billing' AND a.is_active = TRUE ORDER BY a.address_id LIMIT 1) b ON TRUE
-      ORDER BY c.name`));
 
 // updateCustomer + updateAddressBilling
 route("PATCH", "/api/customers/:id", async ({ params, body }) => {

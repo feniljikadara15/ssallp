@@ -16,7 +16,7 @@ const H = ({ children }: { children: string }) => (
 );
 
 export function NewEnquiryModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
-  const customers = useGet<any[]>("customers");
+  const customers = useGet<any[]>("customer-names");
   const products = useGet<any[]>("products");
   const states = useGet<any[]>("state-codes");
 

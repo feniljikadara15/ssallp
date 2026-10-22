@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import clsx from "clsx";
 import { Download } from "lucide-react";
-import { api, useGet } from "../api";
-import { exportRows, fmtDate, includes, inRange, num, stamp } from "../format";
+import { api, useDebounced, useGet } from "../api";
+import { exportRows, fmtDate, num, stamp } from "../format";
 import { useUrlState } from "../lib/urlState";
 import { SplitList, SplitView } from "../components/SplitView";
 import { Badge, DateRange, ErrorBox, FilterBar, PageHeader, Select, Tabs, Toolbar, toast } from "../components/ui";
@@ -18,23 +18,19 @@ const slipNames = (o: any) => (o.loading_slip_numbers ?? []).map((n: string) => 
 
 export default function Orders() {
   const id = Number(useParams().id) || null;
-  const orders = useGet<any[]>("orders", { refetchInterval: 60_000 });
-  const customers = useGet<any[]>("customers");
+  const customers = useGet<any[]>("customer-names");
   const warehouses = useGet<any[]>("warehouses");
   const [f, set, clear] = useUrlState({ status: "1", billing: "", customer: "", warehouse: "", slips: "", from: "", to: "", q: "" });
-  const all = orders.data ?? [];
-
-  const rows = useMemo(() => all.filter((o) =>
-    o.order_status === f.status &&
-    (!f.billing || o.payment_type === f.billing) &&
-    (!f.customer || String(o.customer_id) === f.customer) &&
-    (!f.warehouse || String(o.warehouse_id) === f.warehouse) &&
-    (!f.slips || (f.slips === "none" ? !o.loading_slip_id : !!o.loading_slip_id)) &&
-    inRange(o.order_date, f.from, f.to) &&
-    includes(`${o.customer_name} ${o.site_name} #${o.order_id} ${o.order_number} ${o.zb_invoice_number ?? ""} ${slipNames(o)}`, f.q)), [all, f]);
+  // Filtering, search and paging happen in the database; the list asks for 100 rows at a time.
+  const q = useDebounced(f.q);
+  const filterQs = new URLSearchParams(Object.entries({ status: f.status, billing: f.billing, customer: f.customer, warehouse: f.warehouse, slips: f.slips, from: f.from, to: f.to, q }).filter(([, v]) => v)).toString();
+  const [limit, setLimit] = useState(100);
+  useEffect(() => setLimit(100), [filterQs]);
+  const orders = useGet<{ rows: any[]; total: number; value: number; no_slip: number; counts: Record<string, number> }>(`orders?paged=1&limit=${limit}&${filterQs}`, { refetchInterval: 60_000, keep: true });
+  const rows = orders.data?.rows ?? [];
   const filtered = FILTERS.some((k) => f[k]);
-  const value = rows.reduce((s, o) => s + Number(o.total_amount ?? o.items_value ?? 0), 0);
-  const noSlip = f.status === "1" ? rows.filter((o) => !o.loading_slip_id).length : 0;
+  const value = orders.data?.value ?? 0;
+  const noSlip = f.status === "1" ? orders.data?.no_slip ?? 0 : 0;
   const statusLabel = STATUS.find(([v]) => v === f.status)?.[1] ?? "";
 
   // The item-wise sheet the team used in Retool (one row per product, merged order columns).
@@ -53,7 +49,7 @@ export default function Orders() {
       <div className={clsx("flex flex-col gap-5", id && "hidden lg:flex")}>
         <PageHeader title="Orders" subtitle="Ongoing orders are dispatched and billed; in-transit orders close when the customer's delivery OTP is verified." />
         <Toolbar>
-          <Tabs value={f.status} onChange={(v) => set({ status: v, slips: "", billing: "" })} tabs={STATUS.map(([value, label]) => ({ value, label, count: all.filter((o) => o.order_status === value).length }))} />
+          <Tabs value={f.status} onChange={(v) => set({ status: v, slips: "", billing: "" })} tabs={STATUS.map(([value, label]) => ({ value, label, count: orders.data?.counts[value] ?? 0 }))} />
           {(f.status === "2" || f.status === "3") && <Tabs value={f.billing} onChange={(v) => set({ billing: v })} tabs={[{ value: "", label: "All billing" }, { value: "invoice", label: "Invoice" }, { value: "cash", label: "Cash bill" }]} />}
         </Toolbar>
         <FilterBar active={filtered} onClear={() => clear(FILTERS)}>
@@ -82,22 +78,22 @@ export default function Orders() {
                 {o.warehouse_name && <Badge tone="neutral">{o.warehouse_name}</Badge>}
               </>,
             }))}
-            selectedKey={id ?? undefined} loading={orders.isLoading}
+            selectedKey={id ?? undefined} loading={orders.isLoading || (orders.isFetching && rows.length < limit && rows.length < (orders.data?.total ?? 0))} total={orders.data?.total} onMore={() => setLimit((n) => n + 100)}
             summary={<>₹{num(value)} total{noSlip ? `, ${num(noSlip)} without loading slips` : ""}</>}
             q={f.q} onSearch={(v) => set({ q: v })} placeholder="Customer, order, invoice or slip number"
             actions={f.status !== "5" && <button type="button" className="btn btn-sm px-2" disabled={exporting} onClick={itemExport} title="Item-wise CSV: one row per product, in the Retool layout" aria-label="Item-wise CSV"><Download className="h-4 w-4" /><span className="hidden xl:inline">Items</span></button>}
             empty={<><div className="text-[13.5px] font-medium text-ink">{filtered ? "No orders match these filters" : `No ${statusLabel.toLowerCase()} orders`}</div>
               {filtered && <button className="btn btn-sm mt-3" onClick={() => clear(FILTERS)}>Clear filters</button>}</>}
-            exportInput={{
+            exportInput={async () => ({
               title: `${statusLabel} orders`, filename: `${statusLabel} orders ${stamp()}`, totals: ["amount"],
-              rows: rows.map((o) => ({ ...o, slips: slipNames(o), billing: o.order_status === "1" ? "Not billed" : o.payment_type === "cash" ? "Cash bill" : "Invoice", amount: o.total_amount ?? o.items_value })),
+              rows: (await api<any[]>(`orders?${filterQs}`)).map((o) => ({ ...o, slips: slipNames(o), billing: o.order_status === "1" ? "Not billed" : o.payment_type === "cash" ? "Cash bill" : "Invoice", amount: o.total_amount ?? o.items_value })),
               cols: [
                 { key: "order_id", label: "Order #", kind: "int" }, { key: "order_number", label: "Order number" }, { key: "customer_name", label: "Customer" },
                 { key: "site_name", label: "Site" }, { key: "order_date", label: "Order date", kind: "date" }, { key: "warehouse_name", label: "Warehouse" },
                 { key: "transporter_name", label: "Transporter" }, { key: "vehicle_number", label: "Vehicle" }, { key: "slips", label: "Loading slips" },
                 { key: "billing", label: "Billing" }, { key: "zb_invoice_number", label: "Invoice number" }, { key: "amount", label: "Amount (₹)", kind: "money" },
               ],
-            }} />
+            })} />
         } />
     </div>
   );

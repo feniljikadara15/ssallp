@@ -15,20 +15,20 @@ const H = ({ children }: { children: string }) => (
 
 export default function CustomerDetail() {
   const id = Number(useParams().id);
-  const customers = useGet<any[]>("customers");
+  const customer = useGet<any>(`customers/${id}`);
   const sites = useGet<any[]>(`customers/${id}/sites`);
-  const orders = useGet<any[]>("orders");
-  const enquiries = useGet<any[]>("enquiries");
+  const orders = useGet<any[]>(`orders?customer=${id}`);
+  const enquiries = useGet<any[]>(`enquiries?customer=${id}`);
   const cash = useGet<any[]>("cash-bills?tab=pending");
   const [edit, setEdit] = useState(false);
   const [site, setSite] = useState<any | null>(null);
 
-  const c = customers.data?.find((x) => x.customer_id === id);
-  if (customers.isLoading) return <div className="page"><Loading /></div>;
-  if (customers.error || !c) return <div className="page"><PageHeader title={`Customer #${id}`} breadcrumb={[{ to: "/customers", label: "Customers" }]} /><ErrorBox error={customers.error ?? new Error("This customer doesn't exist.")} /></div>;
+  const c = customer.data;
+  if (customer.isLoading) return <div className="page"><Loading /></div>;
+  if (customer.error || !c) return <div className="page"><PageHeader title={`Customer #${id}`} breadcrumb={[{ to: "/customers", label: "Customers" }]} /><ErrorBox error={customer.error ?? new Error("This customer doesn't exist.")} /></div>;
 
-  const myOrders = (orders.data ?? []).filter((o) => o.customer_id === id);
-  const myEnquiries = (enquiries.data ?? []).filter((e) => e.customer_id === id);
+  const myOrders = orders.data ?? [];
+  const myEnquiries = enquiries.data ?? [];
   const myCash = (cash.data ?? []).filter((o) => o.customer_id === id);
   const due = myCash.reduce((s, o) => s + Number(o.total_amount) - Number(o.total_collected), 0);
   const open = myEnquiries.filter((e) => e.enquiry_status === "0").length;

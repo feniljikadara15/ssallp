@@ -2,7 +2,7 @@ import clsx from "clsx";
 import { ClipboardCheck, CornerDownLeft, MessagesSquare, Search, Users, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useGet } from "../api";
+import { useDebounced, useGet } from "../api";
 import { fmtDate } from "../format";
 import { NAV } from "./nav";
 
@@ -17,9 +17,12 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const [q, setQ] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
-  const orders = useGet<any[]>(open ? "orders" : null);
-  const enquiries = useGet<any[]>(open ? "enquiries" : null);
-  const customers = useGet<any[]>(open ? "customers" : null);
+  // Orders and enquiries are searched in the database; only the matches come back.
+  const term = useDebounced(q.trim(), 250);
+  const enc = encodeURIComponent(term);
+  const orders = useGet<{ rows: any[] }>(open && term ? `orders?paged=1&limit=6&q=${enc}` : null, { keep: true });
+  const enquiries = useGet<{ rows: any[] }>(open && term ? `enquiries?paged=1&limit=5&q=${enc}` : null, { keep: true });
+  const customers = useGet<any[]>(open ? "customer-names" : null);
 
   useEffect(() => { if (open) { setQ(""); setActive(0); } }, [open]);
 
@@ -30,18 +33,14 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     const pages: Hit[] = NAV.flatMap((g) => g.items).filter((i) => !t || i.label.toLowerCase().includes(t))
       .map((i) => ({ key: `p${i.to}`, group: "Pages", icon: i.icon, title: i.label, to: i.to }));
     if (!t) return pages;
-    const ord: Hit[] = (orders.data ?? [])
-      .filter((o) => has(o.customer_name, o.order_number, o.loading_slip_file_name) || String(o.order_id) === digits)
-      .slice(0, 6)
+    const ord: Hit[] = (orders.data?.rows ?? [])
       .map((o) => ({ key: `o${o.order_id}`, group: "Orders", icon: ClipboardCheck, title: `${o.customer_name ?? "Order"} · #${o.order_id}`, meta: [ORDER_STATUS[o.order_status], fmtDate(o.order_date)].filter(Boolean).join(" · "), to: `/orders/${o.order_id}` }));
-    const enq: Hit[] = (enquiries.data ?? [])
-      .filter((e) => has(e.customer_name) || String(e.enquiry_id) === digits)
-      .slice(0, 5)
+    const enq: Hit[] = (enquiries.data?.rows ?? [])
       .map((e) => ({ key: `e${e.enquiry_id}`, group: "Enquiries", icon: MessagesSquare, title: `${e.customer_name ?? "Enquiry"} · EN-${e.enquiry_id}`, meta: [ENQ_STATUS[e.enquiry_status], fmtDate(e.enquiry_date)].filter(Boolean).join(" · "), to: `/enquiries/${e.enquiry_id}` }));
     const cus: Hit[] = (customers.data ?? [])
-      .filter((c) => has(c.name, c.phone, c.gstin))
+      .filter((c) => has(c.name, c.phone))
       .slice(0, 5)
-      .map((c) => ({ key: `c${c.customer_id}`, group: "Customers", icon: Users, title: c.name, meta: [c.phone, c.gstin].filter(Boolean).join(" · "), to: `/customers/${c.customer_id}` }));
+      .map((c) => ({ key: `c${c.customer_id}`, group: "Customers", icon: Users, title: c.name, meta: c.phone || undefined, to: `/customers/${c.customer_id}` }));
     return [...ord, ...enq, ...cus, ...pages];
   }, [q, orders.data, enquiries.data, customers.data]);
 

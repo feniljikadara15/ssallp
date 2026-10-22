@@ -1,4 +1,5 @@
-import { QueryClient, useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { keepPreviousData, QueryClient, useMutation, useQuery, useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { toast } from "./components/ui";
 
 export class ApiError extends Error {
@@ -28,9 +29,25 @@ export const queryClient = new QueryClient({
 
 // GET helper: the query key is the path, so invalidating ["orders"] also
 // refreshes "orders/12" and friends.
-export function useGet<T = any>(path: string | null, opts: { refetchInterval?: number } = {}) {
+// keep: while the path changes (a new filter or page), show the previous
+// result instead of a loading state.
+export function useGet<T = any>(path: string | null, opts: { refetchInterval?: number; keep?: boolean } = {}) {
   const key = path ? path.split(/[/?]/).filter(Boolean) : ["__disabled"];
-  return useQuery<T>({ queryKey: [...key, path], queryFn: () => api<T>(path!), enabled: !!path, ...opts });
+  const { keep, ...rest } = opts;
+  return useQuery<T>({ queryKey: [...key, path], queryFn: () => api<T>(path!), enabled: !!path, ...(keep ? { placeholderData: keepPreviousData } : {}), ...rest });
+}
+
+/** Starts loading a page's data before it opens (hovering a menu item). Same key as useGet. */
+export function prefetch(path: string) {
+  const key = path.split(/[/?]/).filter(Boolean);
+  void queryClient.prefetchQuery({ queryKey: [...key, path], queryFn: () => api(path), staleTime: 15_000 });
+}
+
+/** The value once it has stopped changing for a moment (typing in a search box). */
+export function useDebounced<T>(value: T, ms = 300) {
+  const [v, setV] = useState(value);
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
+  return v;
 }
 
 type Invalidate = (string | QueryKey)[];

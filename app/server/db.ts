@@ -26,7 +26,7 @@ async function connectPg(): Promise<Driver> {
   const pool = new pg.Pool({
     ...target,
     ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
-    max: 3,
+    max: 8,
     // Fail in seconds with a clear message instead of leaving pages loading.
     connectionTimeoutMillis: 10_000,
     query_timeout: 45_000,

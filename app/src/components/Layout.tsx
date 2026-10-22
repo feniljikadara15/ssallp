@@ -2,10 +2,24 @@ import { Link, Outlet, useLocation } from "react-router-dom";
 import clsx from "clsx";
 import { useEffect, useState } from "react";
 import { LogOut, Menu, Search, X } from "lucide-react";
-import { post, type Session } from "../api";
+import { post, prefetch, type Session } from "../api";
 import { LogoMark } from "./Logo";
 import { NAV } from "./nav";
 import { CommandPalette } from "./CommandPalette";
+
+// The data each page asks for first, fetched on hover so the page opens ready.
+const PREFETCH: Record<string, string[]> = {
+  "/orders": ["orders?paged=1&limit=100&status=1", "customer-names", "warehouses"],
+  "/enquiries": ["enquiries?paged=1&limit=100&status=0", "customer-names", "warehouses"],
+  "/customers": ["customers"],
+  "/cash-bills": ["cash-bills?tab=pending", "cash-bills?tab=collected", "customer-names", "warehouses"],
+  "/products": ["products?all=1"],
+  "/warehouses": ["warehouses"],
+  "/transporters": ["transporters", "warehouses"],
+  "/warehouse-keepers": ["warehouse-keepers", "warehouses"],
+  "/transporter-vehicles": ["vehicle-details?search="],
+  "/audit": ["audit?limit=1000"],
+};
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 const ALL = NAV.flatMap((g) => g.items);
@@ -47,6 +61,7 @@ function Sidebar({ onSearch, session }: { onSearch: () => void; session: Session
               const active = i === current;
               return (
                 <Link key={i.to} to={i.to} aria-current={active ? "page" : undefined}
+                  onMouseEnter={() => PREFETCH[i.to]?.forEach(prefetch)} onFocus={() => PREFETCH[i.to]?.forEach(prefetch)}
                   className={clsx("group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-[13.5px] transition-colors", active ? "bg-white/15 font-medium text-white" : "text-white/75 hover:bg-white/10 hover:text-white")}>
                   <i.icon className={clsx("h-[18px] w-[18px] shrink-0", active ? "text-white" : "text-white/55 group-hover:text-white/85")} strokeWidth={1.75} />
                   {i.label}
