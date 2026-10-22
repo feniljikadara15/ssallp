@@ -1,4 +1,4 @@
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { ArrowRightCircle, MapPin, RotateCcw, Send, Trash2 } from "lucide-react";
 import { patch, post, useAction, useGet } from "../api";
 import { fmtDate, num, plural } from "../format";
@@ -8,8 +8,8 @@ import { ENQUIRY_STATUS_BADGE } from "./Enquiries";
 
 const link = "underline decoration-line-strong underline-offset-2 hover:decoration-ink";
 
-export default function EnquiryDetail() {
-  const id = Number(useParams().id);
+// Shown on the right of the enquiries split view; the list on the left picks the id.
+export default function EnquiryDetail({ id }: { id: number }) {
   const navigate = useNavigate();
   const { data: e, error, isLoading } = useGet<any>(`enquiries/${id}`);
   const warehouses = useGet<any[]>("warehouses");
@@ -23,7 +23,7 @@ export default function EnquiryDetail() {
   const notify = useAction(() => post(`enquiries/${id}/notify-transporter`), [], { onSuccess: (r) => toast(r.note ?? "Enquiry sent to the transporter", r.sent === false ? "warn" : "ok") });
 
   if (isLoading) return <div className="page"><Loading /></div>;
-  if (error || !e) return <div className="page"><PageHeader title={`EN-${id}`} breadcrumb={[{ to: "/enquiries", label: "Enquiries" }]} /><ErrorBox error={error ?? new Error("This enquiry doesn't exist.")} /></div>;
+  if (error || !e) return <div className="page"><PageHeader title={`EN-${id}`} /><ErrorBox error={error ?? new Error("This enquiry doesn't exist.")} /></div>;
 
   const status = e.enquiry_status as string;
   const st = ENQUIRY_STATUS_BADGE[status];
@@ -35,7 +35,7 @@ export default function EnquiryDetail() {
 
   return (
     <div className="page">
-      <PageHeader title={`Enquiry EN-${e.enquiry_id}`} breadcrumb={[{ to: "/enquiries", label: "Enquiries" }]}
+      <PageHeader title={`Enquiry EN-${e.enquiry_id}`}
         status={<>{st && <Badge dot tone={st.tone}>{st.label}</Badge>}{e.type === "External" && <Badge tone="info">Website</Badge>}</>}
         subtitle={<><span className="font-medium text-ink">{e.customer_name}</span>{e.site_name ? `, ${e.site_name}` : ""}, received {fmtDate(e.enquiry_date)}{e.order_id ? <>, became <Link className={link} to={`/orders/${e.order_id}`}>order #{e.order_id}</Link></> : null}</>}>
         {open && <Button busy={notify.isPending} disabled={e.transporter_id == null} icon={<Send />} onClick={() => notify.mutate(undefined)}
@@ -55,7 +55,7 @@ export default function EnquiryDetail() {
         { label: "Transport", value: e.warehouse_name ?? "Not picked", hint: e.transporter_name ?? (e.warehouse_id != null ? "No transporter yet" : undefined), tone: open && !ready ? "warning" : undefined },
       ]} />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 [&>*]:flex [&>*]:min-w-0 [&>*>*]:flex-1">
+      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2 [&>*]:flex [&>*]:min-w-0 [&>*>*]:flex-1">
         <div>
           <Section title="Customer and delivery">
             <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">

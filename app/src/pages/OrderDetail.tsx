@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { Check, CheckCircle2, ExternalLink, FileText, MapPin, PackagePlus, Plus, Receipt, RotateCcw, Save, Send, Trash2, Truck, XCircle } from "lucide-react";
 import { api, patch, post, useAction, useGet, type Health } from "../api";
@@ -12,8 +12,8 @@ export const ORDER_STATUS_BADGE: Record<string, { label: string; tone: Tone }> =
   "1": { label: "Ongoing", tone: "neutral" }, "2": { label: "In transit", tone: "info" }, "3": { label: "Delivered", tone: "success" }, "5": { label: "Deleted", tone: "neutral" },
 };
 
-export default function OrderDetail() {
-  const id = Number(useParams().id);
+// Shown on the right of the orders split view; the list on the left picks the id.
+export default function OrderDetail({ id }: { id: number }) {
   const navigate = useNavigate();
   const { data: o, error, isLoading } = useGet<any>(`orders/${id}`);
   const health = useGet<Health & { zohoOrgId?: string }>("health");
@@ -33,7 +33,7 @@ export default function OrderDetail() {
   const cancelSlip = useAction((sid: number) => post(`loading-slip-items/${sid}/cancel`), ["orders", "loading-slips"]);
 
   if (isLoading) return <div className="page"><Loading /></div>;
-  if (error || !o) return <div className="page"><PageHeader title={`Order #${id}`} breadcrumb={[{ to: "/orders", label: "Orders" }]} /><ErrorBox error={error ?? new Error("This order doesn't exist.")} /></div>;
+  if (error || !o) return <div className="page"><PageHeader title={`Order #${id}`} /><ErrorBox error={error ?? new Error("This order doesn't exist.")} /></div>;
 
   const status = o.order_status as string;
   const st = ORDER_STATUS_BADGE[status];
@@ -55,7 +55,7 @@ export default function OrderDetail() {
 
   return (
     <div className="page">
-      <PageHeader title={`Order #${o.order_id}`} breadcrumb={[{ to: "/orders", label: "Orders" }]}
+      <PageHeader title={`Order #${o.order_id}`}
         status={st && <Badge dot tone={st.tone}>{st.label}</Badge>}
         subtitle={<><span className="font-medium text-ink">{o.customer_name}</span>{o.site_name ? `, ${o.site_name}` : ""}, ordered {fmtDate(o.order_date)}{o.order_number ? ` (${o.order_number})` : ""}{o.enquiry_id ? <> from <Link className="underline decoration-line-strong underline-offset-2 hover:text-ink" to={`/enquiries/${o.enquiry_id}`}>EN-{o.enquiry_id}</Link></> : null}</>}>
         {status === "1" && (cashMode
@@ -90,7 +90,7 @@ export default function OrderDetail() {
         { label: "Billing", value: o.zb_invoice_number ?? (isCash ? "Cash bill" : status === "1" ? "Not billed" : "Invoice"), hint: isCash && o.total_amount ? `₹${num(o.total_collected ?? 0)} collected` : o.delivery_terms ?? undefined },
       ]} />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2 [&>*]:flex [&>*]:min-w-0 [&>*>*]:flex-1">
+      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2 [&>*]:flex [&>*]:min-w-0 [&>*>*]:flex-1">
         <div>
           <Section title="Customer and delivery">
             <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">

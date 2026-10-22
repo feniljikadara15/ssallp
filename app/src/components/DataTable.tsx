@@ -235,7 +235,7 @@ export function DataTable({
 }
 
 /** Download menu: formatted Excel, plain CSV, or a printout (which also saves as PDF). */
-function ExportMenu({ busy, onXlsx, onCsv, onPrint }: { busy: boolean; onXlsx: () => void; onCsv: () => void; onPrint: () => void }) {
+export function ExportMenu({ busy, onXlsx, onCsv, onPrint }: { busy: boolean; onXlsx: () => void; onCsv: () => void; onPrint: () => void }) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   const { anchor, render } = usePopover<HTMLButtonElement>(open, close, 256);
