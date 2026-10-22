@@ -123,9 +123,22 @@ async function setUpEmptyDatabase(db: Driver) {
 // Columns the Retool workflows write that databases created by earlier versions
 // of this app lack. Adding nullable columns is a no-op on the Retool DB.
 async function addMissingColumns(db: Driver) {
-  await db.query(`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS amount NUMERIC, ADD COLUMN IF NOT EXISTS tcs_status BOOLEAN, ADD COLUMN IF NOT EXISTS invoice_date TIMESTAMPTZ;
-    ALTER TABLE enquiry_items ADD COLUMN IF NOT EXISTS status TEXT;
-    ALTER TABLE loading_slips ADD COLUMN IF NOT EXISTS regenerated_count INTEGER DEFAULT 0;`);
+  // ALTER TABLE waits for exclusive use of the table even when the column is
+  // already there, and every query on that table queues behind it. So look
+  // first, and only alter (never waiting more than a few seconds) when needed.
+  const want: [string, string, string][] = [
+    ["invoices", "amount", "NUMERIC"], ["invoices", "tcs_status", "BOOLEAN"], ["invoices", "invoice_date", "TIMESTAMPTZ"],
+    ["enquiry_items", "status", "TEXT"], ["loading_slips", "regenerated_count", "INTEGER DEFAULT 0"],
+  ];
+  const have = new Set((await db.query(
+    "SELECT table_name || '.' || column_name AS c FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ANY($1)",
+    [[...new Set(want.map((w) => w[0]))]],
+  )).map((r) => r.c));
+  const missing = want.filter(([t, c]) => !have.has(`${t}.${c}`));
+  if (!missing.length) return;
+  try {
+    await db.query(`SET LOCAL lock_timeout = '3s';\n${missing.map(([t, c, type]) => `ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS ${c} ${type};`).join("\n")}`);
+  } catch (e: any) { console.error("Columns not added yet:", e.message); }
 }
 
 // The Retool tables have primary keys only. The lists look up each row's
