@@ -12,6 +12,8 @@
 #
 # If Supabase already has tables (the app creates them, with sample data), the
 # script shows what is there and asks before deleting it. Retool DB is only read.
+# Functions the target already has (newer Supabase projects add rls_auto_enable)
+# are replaced rather than failing the copy.
 # Needs pg_dump and psql at least as new as the Retool server (17 is safe).
 set -euo pipefail
 : "${RETOOL_DB_URL:?Set RETOOL_DB_URL}"
@@ -51,6 +53,7 @@ fi
 echo "Copying tables and data from Retool DB (this only reads Retool)..."
 pg_dump "$RETOOL_DB_URL" --schema=public --no-owner --no-privileges --no-comments --no-publications --no-subscriptions --no-security-labels \
   | grep -v -e '^CREATE SCHEMA public;$' -e '^COMMENT ON SCHEMA public' \
+  | sed -e 's/^CREATE FUNCTION /CREATE OR REPLACE FUNCTION /' \
   | psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -q -o /dev/null
 
 echo "Turning on row level security..."
